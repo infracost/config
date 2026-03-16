@@ -5226,6 +5226,32 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/something.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
+func Test_Generate_CiscoStacks(t *testing.T) {
+	root := NewFilesystem(t)
+
+	// Create a cisco stacks structure: stacks/<stack>/base + stacks/<stack>/layers/<layer>
+	stacksDir := root.AddDirectory("stacks")
+	myStack := stacksDir.AddDirectory("my-stack")
+	base := myStack.AddDirectory("base")
+	base.AddTerraformFileWithProviderBlock("main.tf")
+	layers := myStack.AddDirectory("layers")
+	layers.AddDirectory("dev")
+	layers.AddDirectory("prod")
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "stacks/my-stack/layer/dev",
+			Path: ".",
+			Type: config.ProjectTypeCiscoStacks,
+		},
+		{
+			Name: "stacks/my-stack/layer/prod",
+			Path: ".",
+			Type: config.ProjectTypeCiscoStacks,
+		},
+	})
+}
+
 func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
