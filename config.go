@@ -139,6 +139,7 @@ const (
 	ProjectTypeCDKTypeScript  ProjectType = "cdk_typescript"
 	ProjectTypeCDKJavaScript  ProjectType = "cdk_javascript"
 	ProjectTypeCDKPython      ProjectType = "cdk_python"
+	ProjectTypeCiscoStacks    ProjectType = "cisco_stacks"
 )
 
 type AWSCredentials struct {

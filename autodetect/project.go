@@ -7,6 +7,7 @@ type Project struct {
 	DependencyPaths   []string
 	Env               string
 	Type              ProjectType
+	Metadata          map[string]string
 }
 
 type ProjectType string
@@ -16,6 +17,7 @@ const (
 	ProjectTypeTerraform      ProjectType = "terraform"
 	ProjectTypeTerragrunt     ProjectType = "terragrunt"
 	ProjectTypeCloudFormation ProjectType = "cloudformation"
+	ProjectTypeCiscoStacks    ProjectType = "cisco_stacks"
 )
 
 type RootModule struct {
