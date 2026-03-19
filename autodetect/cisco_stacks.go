@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // DetectCiscoStacksProjects scans for Cisco Stacks projects by looking for
@@ -42,10 +43,20 @@ func DetectCiscoStacksProjects(rootDir string) ([]Project, map[string]bool) {
 				continue
 			}
 			hasLayers = true
+
+			deps := []string{
+				fmt.Sprintf("stacks/%s/base/**", stack.Name()),
+				fmt.Sprintf("stacks/%s/*.tfvars.jinja", stack.Name()),
+				"stacks/*.tf",
+				"stacks/*.tfvars.jinja",
+				fmt.Sprintf("environments/%s/**", envFromLayerName(layer.Name())),
+			}
+
 			projects = append(projects, Project{
-				Name: fmt.Sprintf("stacks/%s/layer/%s", stack.Name(), layer.Name()),
-				Path: ".",
-				Type: ProjectTypeCiscoStacks,
+				Name:            fmt.Sprintf("stacks/%s/layer/%s", stack.Name(), layer.Name()),
+				Path:            fmt.Sprintf("stacks/%s/layers/%s", stack.Name(), layer.Name()),
+				Type:            ProjectTypeCiscoStacks,
+				DependencyPaths: deps,
 				Metadata: map[string]string{
 					"cisco_stacks_stack": stack.Name(),
 					"cisco_stacks_layer": layer.Name(),
@@ -59,4 +70,17 @@ func DetectCiscoStacksProjects(rootDir string) ([]Project, map[string]bool) {
 	}
 
 	return projects, stackNames
+}
+
+// envFromLayerName extracts the environment from a Cisco Stacks layer name.
+// Layer names follow the format: env[@subenv][_instance]
+func envFromLayerName(name string) string {
+	env := name
+	if idx := strings.IndexByte(env, '_'); idx >= 0 {
+		env = env[:idx]
+	}
+	if idx := strings.IndexByte(env, '@'); idx >= 0 {
+		env = env[:idx]
+	}
+	return env
 }

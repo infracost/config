@@ -5240,14 +5240,28 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 
 	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
-			Name: "stacks/my-stack/layer/dev",
-			Path: ".",
-			Type: config.ProjectTypeCiscoStacks,
+			Name:           "stacks/my-stack/layer/dev",
+			Path:           "stacks/my-stack/layers/dev",
+			Type:           config.ProjectTypeCiscoStacks,
+			DependencyPaths: []string{
+				"stacks/my-stack/base/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/*.tf",
+				"stacks/*.tfvars.jinja",
+				"environments/dev/**",
+			},
 		},
 		{
-			Name: "stacks/my-stack/layer/prod",
-			Path: ".",
-			Type: config.ProjectTypeCiscoStacks,
+			Name:           "stacks/my-stack/layer/prod",
+			Path:           "stacks/my-stack/layers/prod",
+			Type:           config.ProjectTypeCiscoStacks,
+			DependencyPaths: []string{
+				"stacks/my-stack/base/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/*.tf",
+				"stacks/*.tfvars.jinja",
+				"environments/prod/**",
+			},
 		},
 	})
 }
