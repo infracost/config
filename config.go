@@ -1,6 +1,12 @@
 package config
 
 import (
+	"crypto/sha1" // nolint:gosec
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/infracost/config/cdk"
 	"gopkg.in/yaml.v3"
 )
@@ -120,6 +126,44 @@ type Project struct {
 	DependencyPaths []string          `yaml:"dependency_paths,omitempty"`
 	AWS             ProjectAWSConfig  `yaml:"aws,omitempty"`
 	CDKSynthError   string            `yaml:"cdk_synth_error,omitempty"`
+}
+
+// ConfigSHA computes a deterministic SHA for the project config based on its
+// key fields. This is used by the dashboard to detect config changes and
+// deduplicate breakdowns.
+func (p *Project) ConfigSHA() string {
+	var inputs []string
+	inputs = append(inputs, p.Name)
+	inputs = append(inputs, p.Path)
+	inputs = append(inputs, p.ExcludePaths...)
+	inputs = append(inputs, p.DependencyPaths...)
+	orderVars := make([]string, 0, len(p.Terraform.Vars))
+	for k, v := range p.Terraform.Vars {
+		orderVars = append(orderVars, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(orderVars)
+	inputs = append(inputs, orderVars...)
+	inputs = append(inputs, p.Terraform.VarFiles...)
+	inputs = append(inputs, p.Terraform.Workspace)
+	inputs = append(inputs, p.Terraform.Cloud.Host)
+	inputs = append(inputs, p.Terraform.Cloud.Org)
+	inputs = append(inputs, p.Terraform.Cloud.Workspace)
+	inputs = append(inputs, p.Terraform.Cloud.Token)
+	inputs = append(inputs, p.UsageFile)
+	inputs = append(inputs, p.Terraform.Spacelift.APIKey.Endpoint)
+	inputs = append(inputs, p.Terraform.Spacelift.APIKey.ID)
+	inputs = append(inputs, p.Terraform.Spacelift.APIKey.Secret)
+	orderEnv := make([]string, 0, len(p.Env))
+	for k, v := range p.Env {
+		orderEnv = append(orderEnv, fmt.Sprintf("%s=%s", k, v))
+	}
+	sort.Strings(orderEnv)
+	inputs = append(inputs, orderEnv...)
+
+	// nolint:gosec
+	gen := sha1.New()
+	_, _ = gen.Write([]byte(strings.Join(inputs, "|")))
+	return hex.EncodeToString(gen.Sum(nil))
 }
 
 type ProjectAWSConfig struct {
