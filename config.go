@@ -125,6 +125,7 @@ type Project struct {
 	ExcludePaths    []string          `yaml:"exclude_paths,omitempty"`
 	DependencyPaths []string          `yaml:"dependency_paths,omitempty"`
 	AWS             ProjectAWSConfig  `yaml:"aws,omitempty"`
+	Azure           ProjectAzureConfig `yaml:"azure,omitempty"`
 	CDKSynthError   string            `yaml:"cdk_synth_error,omitempty"`
 }
 
@@ -153,6 +154,11 @@ func (p *Project) ConfigSHA() string {
 	inputs = append(inputs, p.Terraform.Spacelift.APIKey.Endpoint)
 	inputs = append(inputs, p.Terraform.Spacelift.APIKey.ID)
 	inputs = append(inputs, p.Terraform.Spacelift.APIKey.Secret)
+	inputs = append(inputs, p.Azure.SubscriptionID)
+	inputs = append(inputs, p.Azure.TenantID)
+	inputs = append(inputs, p.Azure.ResourceGroupName)
+	inputs = append(inputs, p.Azure.Location)
+	inputs = append(inputs, p.Azure.ManagementGroupID)
 	orderEnv := make([]string, 0, len(p.Env))
 	for k, v := range p.Env {
 		orderEnv = append(orderEnv, fmt.Sprintf("%s=%s", k, v))
@@ -173,6 +179,17 @@ type ProjectAWSConfig struct {
 	AccountID string `yaml:"account_id,omitempty"`
 }
 
+// ProjectAzureConfig is the Azure deployment-scope context that drives
+// resourceGroup(), subscription(), tenant() and similar function results
+// when evaluating an ARM template. Mirrors ProjectAWSConfig in shape.
+type ProjectAzureConfig struct {
+	SubscriptionID    string `yaml:"subscription_id,omitempty"`
+	TenantID          string `yaml:"tenant_id,omitempty"`
+	ResourceGroupName string `yaml:"resource_group_name,omitempty"`
+	Location          string `yaml:"location,omitempty"`
+	ManagementGroupID string `yaml:"management_group_id,omitempty"`
+}
+
 type ProjectType string
 
 const (
@@ -180,6 +197,7 @@ const (
 	ProjectTypeTerraform      ProjectType = "terraform"
 	ProjectTypeTerragrunt     ProjectType = "terragrunt"
 	ProjectTypeCloudFormation ProjectType = "cloudformation"
+	ProjectTypeARM            ProjectType = "arm"
 	ProjectTypeCDKTypeScript  ProjectType = "cdk_typescript"
 	ProjectTypeCDKJavaScript  ProjectType = "cdk_javascript"
 	ProjectTypeCDKPython      ProjectType = "cdk_python"

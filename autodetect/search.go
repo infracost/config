@@ -135,10 +135,10 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 	}
 	projectNodes = filteredProjects
 
-	// remove cfn projects that lie within a tf/tg project
+	// remove cfn/arm projects that lie within a tf/tg project
 	filteredProjects = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
-		if project.IsCloudFormation() && project.IsInsideProject() {
+		if (project.IsCloudFormation() || project.IsARM()) && project.IsInsideProject() {
 			continue
 		}
 		filteredProjects = append(filteredProjects, project)
@@ -161,8 +161,8 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 		if projectName == "." {
 			projectName = "main"
 		}
-		// remove yml/json file ext from project name for CFN
-		if project.IsCloudFormation() {
+		// remove yml/json file ext from project name for CFN/ARM
+		if project.IsCloudFormation() || project.IsARM() {
 			projectName = trimFileExt(projectName)
 		}
 
@@ -234,6 +234,8 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 			projectType = ProjectTypeTerragrunt
 		case project.IsCloudFormation():
 			projectType = ProjectTypeCloudFormation
+		case project.IsARM():
+			projectType = ProjectTypeARM
 		}
 
 		// dedup the deps list
@@ -323,6 +325,7 @@ type Node struct {
 	Terragrunt     TerragruntFlags
 	Terraform      TerraformFlags
 	CloudFormation CloudFormationFlags
+	ARM            ARMFlags
 	TFVars         TFVarsFlags
 	Depth          int
 	Parent         *Node
@@ -365,7 +368,7 @@ func (n *Node) LinkTFVarFile(tfVarFile TFVarsFile, limitIfLinkedEnv bool) bool {
 }
 
 func (n *Node) IsProject() bool {
-	return n.IsTerraform() || n.IsTerragrunt() || n.IsCloudFormation()
+	return n.IsTerraform() || n.IsTerragrunt() || n.IsCloudFormation() || n.IsARM()
 }
 
 func (n *Node) HasProjects() bool {
@@ -401,6 +404,10 @@ func (n *Node) IsTerragrunt() bool {
 
 func (n *Node) IsCloudFormation() bool {
 	return n.CloudFormation.IsCloudFormation
+}
+
+func (n *Node) IsARM() bool {
+	return n.ARM.IsARM
 }
 
 func (n *Node) IsInsideProject() bool {
@@ -845,6 +852,10 @@ type CloudFormationFlags struct {
 	IsCloudFormation bool
 }
 
+type ARMFlags struct {
+	IsARM bool
+}
+
 type TFVarsFlags struct {
 	HasFiles bool
 	Files    []TFVarsFile
@@ -1084,6 +1095,16 @@ func buildDirectoryTree(repoRoot, path string, autodetectConfig *Config, depth i
 			}
 			node.Terragrunt.LocalOutsideTerraformSources = append(node.Terragrunt.LocalOutsideTerraformSources, sniff.Sources...)
 			node.Terragrunt.IncludedOutsideTerragruntFiles = append(node.Terragrunt.IncludedOutsideTerragruntFiles, sniff.Includes...)
+		case IdentifyARMPath(fullPath):
+			node.Children = append(node.Children, &Node{
+				Name:         info.Name(),
+				AbsolutePath: fullPath,
+				Parent:       node,
+				Depth:        depth + 1,
+				ARM: ARMFlags{
+					IsARM: true,
+				},
+			})
 		case IdentifyCloudFormationPath(fullPath):
 			node.Children = append(node.Children, &Node{
 				Name:         info.Name(),

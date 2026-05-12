@@ -17,6 +17,7 @@ const (
 	ProjectTypeTerraform      ProjectType = "terraform"
 	ProjectTypeTerragrunt     ProjectType = "terragrunt"
 	ProjectTypeCloudFormation ProjectType = "cloudformation"
+	ProjectTypeARM            ProjectType = "arm"
 	ProjectTypeCiscoStacks    ProjectType = "cisco_stacks"
 )
 
