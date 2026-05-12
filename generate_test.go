@@ -5042,6 +5042,69 @@ func Test_Generate_CFNYAML_InsideTFProject(t *testing.T) {
 	)
 }
 
+func Test_Generate_ARMJSON(t *testing.T) {
+
+	root := NewFilesystem(t)
+	root.AddARMJSON()
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "template",
+			Path: "template.json",
+			Type: "arm",
+		},
+	})
+}
+
+func Test_Generate_ARMJSON_InsideTFProject(t *testing.T) {
+
+	root := NewFilesystem(t)
+	tfDir := root.AddDirectory("tf")
+	tfDir.AddARMJSON()
+	tfDir.AddTerraformFileWithProviderBlock("main.tf")
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "tf",
+			Path: "tf",
+			Type: "terraform",
+		},
+	})
+}
+
+// Test_Generate_ARMJSON_NotPickedUpAsCFN guards against the case where
+// an ARM template gets double-classified or misclassified as
+// CloudFormation. The two sniffs look at different fields, but the
+// shared .json extension means the ordering in the autodetect walk is
+// load-bearing — pin it with a test rather than a comment.
+func Test_Generate_ARMJSON_NotPickedUpAsCFN(t *testing.T) {
+
+	root := NewFilesystem(t)
+	root.AddARMJSON()
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "template",
+			Path: "template.json",
+			Type: "arm",
+		},
+	})
+}
+
+// Test_Generate_Bicep_NotAutodetected confirms the parser-repo policy
+// that Bicep transpilation is caller-side (mirrors CDK→CFN). A bare
+// .bicep file in a repo should produce no projects from autodetect.
+func Test_Generate_Bicep_NotAutodetected(t *testing.T) {
+
+	root := NewFilesystem(t)
+	root.AddBicep()
+
+	generated, err := config.Generate(root.Path())
+	require.NoError(t, err)
+	require.NotNil(t, generated)
+	require.Len(t, generated.Projects, 0)
+}
+
 func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 	root := NewFilesystem(t)
 	cdkDir := root.AddDirectory("cdk-app")

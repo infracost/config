@@ -78,6 +78,39 @@ func (d *Directory) AddCFNJSON() {
 }`)
 }
 
+// AddARMJSON writes a minimal ARM deployment template at template.json.
+// The $schema URL is what IdentifyARMPath sniffs for; the single
+// Microsoft.Storage resource gives the secondary type-prefix sniff
+// something to match when $schema isn't present.
+func (d *Directory) AddARMJSON() {
+	d.AddFile("template.json").Content(`{
+	"$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"resources": [
+		{
+			"type": "Microsoft.Storage/storageAccounts",
+			"apiVersion": "2023-01-01",
+			"name": "examplestorage",
+			"location": "eastus",
+			"sku": { "name": "Standard_LRS" },
+			"kind": "StorageV2"
+		}
+	]
+}`)
+}
+
+// AddBicep writes a placeholder .bicep file. The parser doesn't consume
+// Bicep directly (transpile is caller-side, mirroring CDK), so this is
+// used to assert the file is *not* autodetected.
+func (d *Directory) AddBicep() {
+	d.AddFile("main.bicep").Content(`resource sa 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+	name: 'examplestorage'
+	location: 'eastus'
+	sku: { name: 'Standard_LRS' }
+	kind: 'StorageV2'
+}`)
+}
+
 func (d *Directory) AddFile(name string) *File {
 	f := &File{
 		t:      d.t,
