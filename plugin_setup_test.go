@@ -131,7 +131,7 @@ func fetchPluginManifest() (*pluginManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("manifest fetch returned %s", resp.Status)
@@ -180,7 +180,7 @@ func ensurePlugin(destDir string, manifest *pluginManifest, name, platform strin
 	if err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
-	defer os.Remove(archivePath)
+	defer func() { _ = os.Remove(archivePath) }()
 
 	switch {
 	case len(artifact.Name) > 7 && artifact.Name[len(artifact.Name)-7:] == ".tar.gz":
@@ -217,7 +217,7 @@ func downloadAndVerify(rawURL, expectedSHA, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download %s returned %s", rawURL, resp.Status)
@@ -231,19 +231,19 @@ func downloadAndVerify(rawURL, expectedSHA, name string) (string, error) {
 
 	hasher := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, hasher), resp.Body); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", err
 	}
 
 	if expectedSHA != "" {
 		actual := hex.EncodeToString(hasher.Sum(nil))
 		if actual != expectedSHA {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 			return "", fmt.Errorf("sha mismatch for %s: expected %s, got %s", name, expectedSHA, actual)
 		}
 	}
@@ -256,13 +256,13 @@ func extractTarGzBinary(archivePath, destPath, expectedName string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -281,7 +281,7 @@ func extractTarGzBinary(archivePath, destPath, expectedName string) error {
 			return err
 		}
 		if _, err := io.Copy(out, io.LimitReader(tr, pluginBinarySize)); err != nil {
-			out.Close()
+			_ = out.Close()
 			return err
 		}
 		return out.Close()
@@ -293,7 +293,7 @@ func extractZipBinary(archivePath, destPath, expectedName string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, zf := range r.File {
 		if filepath.Base(zf.Name) != expectedName {
@@ -305,11 +305,11 @@ func extractZipBinary(archivePath, destPath, expectedName string) error {
 		}
 		out, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
-			zr.Close()
+			_ = zr.Close()
 			return err
 		}
 		_, copyErr := io.Copy(out, io.LimitReader(zr, pluginBinarySize))
-		zr.Close()
+		_ = zr.Close()
 		closeErr := out.Close()
 		if copyErr != nil {
 			return copyErr
