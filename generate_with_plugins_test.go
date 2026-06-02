@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_Generate_SimpleTFInRoot(t *testing.T) {
+func Test_Generate_SimpleTFInRoot_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddFile("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "main",
 			Path: ".",
@@ -22,14 +22,14 @@ func Test_Generate_SimpleTFInRoot(t *testing.T) {
 	)
 }
 
-func Test_Generate_NoProjects(t *testing.T) {
+func Test_Generate_NoProjects_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 	require.NoError(t, err)
 	assert.Len(t, generated.Projects, 0)
 }
 
-func Test_Generate_SimpleTFInRootWithTemplate(t *testing.T) {
+func Test_Generate_SimpleTFInRootWithTemplate_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddFile("main.tf")
 
@@ -40,7 +40,7 @@ projects:
       path: {{ .Path }}
   {{ end }}
 `
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "main",
 			Path: ".",
@@ -48,13 +48,13 @@ projects:
 	})
 }
 
-func Test_Generate_SimpleTFInRootWithTemplateMissingProjectsSection(t *testing.T) {
+func Test_Generate_SimpleTFInRootWithTemplateMissingProjectsSection_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddFile("main.tf")
 
 	template := `version: 0.1
 `
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "main",
 			Path: ".",
@@ -63,7 +63,7 @@ func Test_Generate_SimpleTFInRootWithTemplateMissingProjectsSection(t *testing.T
 	})
 }
 
-func Test_Generate_Aunt(t *testing.T) {
+func Test_Generate_Aunt_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	appsDir := root.AddDirectory("apps")
@@ -86,7 +86,7 @@ func Test_Generate_Aunt(t *testing.T) {
 	envsDir.AddTFVarsFile("prod.tfvars")
 	envsDir.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-us1-dev",
 			Path:    "apps/bar/us1",
@@ -186,7 +186,7 @@ func Test_Generate_Aunt(t *testing.T) {
 	})
 }
 
-func Test_Generate_AuntAndGreatAunt(t *testing.T) {
+func Test_Generate_AuntAndGreatAunt_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	infraDir := root.AddDirectory("infra")
@@ -214,7 +214,7 @@ func Test_Generate_AuntAndGreatAunt(t *testing.T) {
 	infraEnvsDir.AddTFVarsFile("prod.tfvars")
 	infraEnvsDir.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "infra-apps-bar-us1-dev",
 			Path:    "infra/apps/bar/us1",
@@ -330,7 +330,7 @@ func Test_Generate_AuntAndGreatAunt(t *testing.T) {
 	})
 }
 
-func Test_Generate_AuntFilenameMatchesProject(t *testing.T) {
+func Test_Generate_AuntFilenameMatchesProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -372,7 +372,7 @@ func Test_Generate_AuntFilenameMatchesProject(t *testing.T) {
 	devDir.AddTFVarsFile("defaults.tfvars")
 	devDir.AddTFVarsFile("bar.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "infra-components-bar-dev",
 			Path:    "infra/components/bar",
@@ -445,7 +445,7 @@ func Test_Generate_AuntFilenameMatchesProject(t *testing.T) {
 	})
 }
 
-func Test_Generate_AuntFilenamesWithEnv(t *testing.T) {
+func Test_Generate_AuntFilenamesWithEnv_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -510,7 +510,7 @@ func Test_Generate_AuntFilenamesWithEnv(t *testing.T) {
 	ckoProdDir.AddTFVarsFile("airflow.tfvars")
 	ckoProdDir.AddTFVarsFile("apm-events.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "components-age-dev",
 			Path:    "components/age",
@@ -661,7 +661,7 @@ func Test_Generate_AuntFilenamesWithEnv(t *testing.T) {
 	})
 }
 
-func Test_Generate_Child(t *testing.T) {
+func Test_Generate_Child_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -697,7 +697,7 @@ func Test_Generate_Child(t *testing.T) {
 	fooEnvsDir.AddTFVarsFile("dev.tfvars")
 	fooEnvsDir.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -749,7 +749,7 @@ func Test_Generate_Child(t *testing.T) {
 	})
 }
 
-func Test_Generate_ChildWithDot(t *testing.T) {
+func Test_Generate_ChildWithDot_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -771,7 +771,7 @@ func Test_Generate_ChildWithDot(t *testing.T) {
 	envsDir.AddTFVarsFile("dev.eu-west-1.tfvars")
 	envsDir.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-foo-dev",
 			Path:    "apps/foo",
@@ -799,7 +799,7 @@ func Test_Generate_ChildWithDot(t *testing.T) {
 	})
 }
 
-func Test_Generate_Cousin(t *testing.T) {
+func Test_Generate_Cousin_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -853,7 +853,7 @@ func Test_Generate_Cousin(t *testing.T) {
 	nestedDevDir.AddTFVarsFile("dev.tfvars")
 	nestedEnvsDir.AddTFVarsFile("defaults.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "infra-components-foo-dev",
 			Path:    "infra/components/foo",
@@ -916,7 +916,7 @@ func Test_Generate_Cousin(t *testing.T) {
 	})
 }
 
-func Test_Generate_CousinFlat(t *testing.T) {
+func Test_Generate_CousinFlat_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -940,7 +940,7 @@ func Test_Generate_CousinFlat(t *testing.T) {
 	prodDir.AddTFVarsFile("prod.tfvars")
 	envsDir.AddTFVarsFile("defaults.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "main-dev",
 			Path:    ".",
@@ -968,7 +968,7 @@ func Test_Generate_CousinFlat(t *testing.T) {
 	})
 }
 
-func Test_Generate_DetectedProjects(t *testing.T) {
+func Test_Generate_DetectedProjects_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -1007,7 +1007,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
 			Path: "apps/bar",
@@ -1063,7 +1063,7 @@ projects:
 	})
 }
 
-func Test_Generate_DetectedRootModules(t *testing.T) {
+func Test_Generate_DetectedRootModules_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -1101,7 +1101,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
 			Path: "apps/bar",
@@ -1145,7 +1145,7 @@ projects:
 	})
 }
 
-func Test_Generate_EnvDirs(t *testing.T) {
+func Test_Generate_EnvDirs_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -1178,7 +1178,7 @@ func Test_Generate_EnvDirs(t *testing.T) {
 	devDir.AddTFVarsFile("bla.tfvars")
 	variablesDir.AddTFVarsFile("defaults.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "infra-components-baz-dev",
 			Path:    "infra/components/baz",
@@ -1230,7 +1230,7 @@ func Test_Generate_EnvDirs(t *testing.T) {
 	})
 }
 
-func Test_Generate_EnvNames(t *testing.T) {
+func Test_Generate_EnvNames_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -1279,7 +1279,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
 			Path: "apps/bar",
@@ -1335,7 +1335,7 @@ projects:
 	})
 }
 
-func Test_Generate_ParentAndGrandparent(t *testing.T) {
+func Test_Generate_ParentAndGrandparent_WithPlugins(t *testing.T) {
 	/*
 			.
 		└── apps
@@ -1388,7 +1388,7 @@ func Test_Generate_ParentAndGrandparent(t *testing.T) {
 	apps.AddTFVarsFile("prod.tfvars")
 	apps.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar-us1-dev",
 			Path: "apps/bar/us1",
@@ -1512,7 +1512,7 @@ func Test_Generate_ParentAndGrandparent(t *testing.T) {
 	})
 }
 
-func Test_Generate_PathOverrides(t *testing.T) {
+func Test_Generate_PathOverrides_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 	components := infra.AddDirectory("components")
@@ -1556,7 +1556,7 @@ autodetect:
         - bat
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-components-bar-bip",
 			Path: "infra/components/bar",
@@ -1615,7 +1615,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_PreferFolderName(t *testing.T) {
+func Test_Generate_PreferFolderName_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 	infra.AddTerraformFileWithProviderBlock("main.tf")
@@ -1637,7 +1637,7 @@ autodetect:
   prefer_folder_name_for_env: true
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-qa",
 			Path: "infra",
@@ -1665,7 +1665,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_RepoName(t *testing.T) {
+func Test_Generate_RepoName_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -1694,7 +1694,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar",
 			Path: "apps/bar",
@@ -1725,7 +1725,7 @@ projects:
 	}, config.WithRepoName("infracost/infracost"))
 }
 
-func Test_Generate_RootPaths(t *testing.T) {
+func Test_Generate_RootPaths_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -1741,7 +1741,7 @@ func Test_Generate_RootPaths(t *testing.T) {
 	foo.AddTFVarsFile("prod.tfvars")
 	foo.AddTFVarsFile("terraform.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar",
 			Path: "apps/bar",
@@ -1781,7 +1781,7 @@ func Test_Generate_RootPaths(t *testing.T) {
 	})
 }
 
-func Test_Generate_RootWithLeafs(t *testing.T) {
+func Test_Generate_RootWithLeafs_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	terraform := root.AddDirectory("terraform")
 	terraform.AddTerraformFileWithProviderBlock("main.tf")
@@ -1799,7 +1799,7 @@ func Test_Generate_RootWithLeafs(t *testing.T) {
 	fooProd := foo.AddDirectory("prod")
 	fooProd.AddTFVarsFile("terraform.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "terraform-dev",
 			Path: "terraform",
@@ -1851,7 +1851,7 @@ func Test_Generate_RootWithLeafs(t *testing.T) {
 	})
 }
 
-func Test_Generate_Sibling(t *testing.T) {
+func Test_Generate_Sibling_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -1866,7 +1866,7 @@ func Test_Generate_Sibling(t *testing.T) {
 	envs.AddTFVarsFile("dev.tfvars")
 	envs.AddTFVarsFile("shared.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar-dev",
 			Path: "apps/bar",
@@ -1922,7 +1922,7 @@ func Test_Generate_Sibling(t *testing.T) {
 	})
 }
 
-func Test_Generate_SingleNestedProject(t *testing.T) {
+func Test_Generate_SingleNestedProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	app := root.AddDirectory("app")
 	foo := app.AddDirectory("foo")
@@ -1931,7 +1931,7 @@ func Test_Generate_SingleNestedProject(t *testing.T) {
   instance_type = "t2.micro"
 }`)
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "app-foo",
 			Path: "app/foo",
@@ -1940,13 +1940,13 @@ func Test_Generate_SingleNestedProject(t *testing.T) {
 	})
 }
 
-func Test_Generate_SingleProject(t *testing.T) {
+func Test_Generate_SingleProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddTerraformFileWithProviderBlock("main.tf")
 	root.AddTFVarsFile("prod.tfvars")
 	root.AddTFVarsFile("dev.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "main-dev",
 			Path: ".",
@@ -1974,14 +1974,14 @@ func Test_Generate_SingleProject(t *testing.T) {
 	})
 }
 
-func Test_Generate_SingleRootProject(t *testing.T) {
+func Test_Generate_SingleRootProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddFile("test.tf").Content(`resource "aws_instance" "example" {
   ami           = "ami-0c55b159cbfafe1d0"
   instance_type = "t2.micro"
 }`)
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "main",
 			Path: ".",
@@ -1990,7 +1990,7 @@ func Test_Generate_SingleRootProject(t *testing.T) {
 	})
 }
 
-func Test_Generate_Terragrunt(t *testing.T) {
+func Test_Generate_Terragrunt_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddTerragruntFile()
 
@@ -2008,7 +2008,7 @@ func Test_Generate_Terragrunt(t *testing.T) {
 	bip := baz.AddDirectory("bip")
 	bip.AddTerragruntFileIncludingParentDir()
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar",
 			Path: "apps/bar",
@@ -2033,7 +2033,7 @@ func Test_Generate_Terragrunt(t *testing.T) {
 	})
 }
 
-func Test_Generate_SharedEnvVarFiles(t *testing.T) {
+func Test_Generate_SharedEnvVarFiles_WithPlugins(t *testing.T) {
 	/*
 		└── apps
 		    ├── foo
@@ -2065,7 +2065,7 @@ func Test_Generate_SharedEnvVarFiles(t *testing.T) {
 	apps.AddTFVarsFile("dev-default.tfvars")
 	apps.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar-dev",
 			Path: "apps/bar",
@@ -2136,7 +2136,7 @@ func Test_Generate_SharedEnvVarFiles(t *testing.T) {
 	})
 }
 
-func Test_Generate_SiblingAndAunt(t *testing.T) {
+func Test_Generate_SiblingAndAunt_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -2170,7 +2170,7 @@ func Test_Generate_SiblingAndAunt(t *testing.T) {
 	barUs2 := bar.AddDirectory("us2")
 	barUs2.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-bar-us1-dev",
 			Path: "apps/bar/us1",
@@ -2294,7 +2294,7 @@ func Test_Generate_SiblingAndAunt(t *testing.T) {
 	})
 }
 
-func Test_Generate_SiblingAndChildDefault(t *testing.T) {
+func Test_Generate_SiblingAndChildDefault_WithPlugins(t *testing.T) {
 	/*
 	   # If there is ambiguity whether to link root modules to var files in sibling
 	   # or child directories we should default to child. In the future we could
@@ -2327,7 +2327,7 @@ func Test_Generate_SiblingAndChildDefault(t *testing.T) {
 	envs.AddTFVarsFile("dev.tfvars")
 	envs.AddTFVarsFile("prod.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-dev",
 			Path: "apps",
@@ -2365,7 +2365,7 @@ func Test_Generate_SiblingAndChildDefault(t *testing.T) {
 	})
 }
 
-func Test_Generate_SiblingAndChildPreferChild(t *testing.T) {
+func Test_Generate_SiblingAndChildPreferChild_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 	apps.AddTerraformFileWithProviderBlock("main.tf")
@@ -2387,7 +2387,7 @@ func Test_Generate_SiblingAndChildPreferChild(t *testing.T) {
 	barEnvs := bar.AddDirectory("envs")
 	barEnvs.AddTFVarsFile("prod.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-dev",
 			Path: "apps",
@@ -2439,7 +2439,7 @@ func Test_Generate_SiblingAndChildPreferChild(t *testing.T) {
 	})
 }
 
-func Test_Generate_SiblingAndChildPreferSibling(t *testing.T) {
+func Test_Generate_SiblingAndChildPreferSibling_WithPlugins(t *testing.T) {
 	/*
 	   # We should link root modules with var files in sibling directories if further
 	   # up the hierarchy there are more var files in sibling directories
@@ -2479,7 +2479,7 @@ func Test_Generate_SiblingAndChildPreferSibling(t *testing.T) {
 	bar := apps.AddDirectory("bar")
 	bar.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "apps-dev",
 			Path: "apps",
@@ -2555,7 +2555,7 @@ func Test_Generate_SiblingAndChildPreferSibling(t *testing.T) {
 	})
 }
 
-func Test_Generate_WithNoDirectoriesWithProviders(t *testing.T) {
+func Test_Generate_WithNoDirectoriesWithProviders_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	modules := root.AddDirectory("modules")
@@ -2569,7 +2569,7 @@ func Test_Generate_WithNoDirectoriesWithProviders(t *testing.T) {
 	baz := modules.AddDirectory("baz")
 	baz.AddTerraformWithNoBackendOrProvider("test.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "modules-bar",
 			Path: "modules/bar",
@@ -2588,7 +2588,7 @@ func Test_Generate_WithNoDirectoriesWithProviders(t *testing.T) {
 	})
 }
 
-func Test_Generate_ParentFilenameMatchesProject(t *testing.T) {
+func Test_Generate_ParentFilenameMatchesProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	infra := root.AddDirectory("infra")
@@ -2609,7 +2609,7 @@ func Test_Generate_ParentFilenameMatchesProject(t *testing.T) {
 	baz := components.AddDirectory("baz")
 	baz.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "infra-components-bar",
 			Path: "infra/components/bar",
@@ -2647,7 +2647,7 @@ func Test_Generate_ParentFilenameMatchesProject(t *testing.T) {
 	})
 }
 
-func Test_Generate_TerragruntAndTerraformMixed(t *testing.T) {
+func Test_Generate_TerragruntAndTerraformMixed_WithPlugins(t *testing.T) {
 	/*
 		└── apps
 		    ├── bar
@@ -2702,7 +2702,7 @@ autodetect:
     - '**/fez'
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar",
 			Path: "apps/bar",
@@ -2748,7 +2748,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_TfvarJson(t *testing.T) {
+func Test_Generate_TfvarJson_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	terraform := root.AddDirectory("terraform")
@@ -2763,7 +2763,7 @@ func Test_Generate_TfvarJson(t *testing.T) {
 	dev := env.AddDirectory("dev")
 	dev.AddTFVarsJSONFile("tfvars.json")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "terraform-dev",
 			Path: "terraform",
@@ -2791,7 +2791,7 @@ func Test_Generate_TfvarJson(t *testing.T) {
 	})
 }
 
-func Test_Generate_WildcardEnvNames(t *testing.T) {
+func Test_Generate_WildcardEnvNames_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	terraform := root.AddDirectory("terraform")
 	terraform.AddTerraformFileWithProviderBlock("main.tf")
@@ -2816,7 +2816,7 @@ autodetect:
     - ??-uat
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "terraform-conf-dev-foo",
 			Path: "terraform",
@@ -2924,7 +2924,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_EnvNamesCaseInsensitive(t *testing.T) {
+func Test_Generate_EnvNamesCaseInsensitive_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -2973,7 +2973,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
 			Path: "apps/bar",
@@ -3029,7 +3029,7 @@ projects:
 	})
 }
 
-func Test_Generate_EnvNamesInPath(t *testing.T) {
+func Test_Generate_EnvNamesInPath_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -3084,7 +3084,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-components-foo-dev",
 			Path: "infra/components/foo-dev",
@@ -3108,7 +3108,7 @@ projects:
 	})
 }
 
-func Test_Generate_EnvNamesPartials(t *testing.T) {
+func Test_Generate_EnvNamesPartials_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -3153,7 +3153,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
 			Path: "apps/bar",
@@ -3205,7 +3205,7 @@ projects:
 	})
 }
 
-func Test_Generate_EnvVarDotExtensions(t *testing.T) {
+func Test_Generate_EnvVarDotExtensions_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	/*
@@ -3246,7 +3246,7 @@ autodetect:
 
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -3302,7 +3302,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_EnvVarDots(t *testing.T) {
+func Test_Generate_EnvVarDots_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 	bar := apps.AddDirectory("bar")
@@ -3318,7 +3318,7 @@ func Test_Generate_EnvVarDots(t *testing.T) {
 	apps.AddFile(".prod.tfvars")
 	apps.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -3382,7 +3382,7 @@ func Test_Generate_EnvVarDots(t *testing.T) {
 	})
 }
 
-func Test_Generate_EmptyExtensions(t *testing.T) {
+func Test_Generate_EmptyExtensions_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	// we add a TF Vars file but don't expect it to be scanned.
 	root.AddTFVarsFile("program.dll")
@@ -3397,7 +3397,7 @@ autodetect:
     - ""
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "main-prod",
 			Path:    ".",
@@ -3410,7 +3410,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_EnvVarExtensions(t *testing.T) {
+func Test_Generate_EnvVarExtensions_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 	bar := apps.AddDirectory("bar")
@@ -3440,7 +3440,7 @@ autodetect:
 
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "apps-bar-baz",
 			Path:    "apps/bar",
@@ -3524,7 +3524,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_ExcludedDirs(t *testing.T) {
+func Test_Generate_ExcludedDirs_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 	bar := apps.AddDirectory("bar")
@@ -3556,7 +3556,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
 			Path: "apps/bar",
@@ -3580,7 +3580,7 @@ projects:
 	})
 }
 
-func Test_Generate_ExcludedDirsGlob(t *testing.T) {
+func Test_Generate_ExcludedDirsGlob_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 	bar := apps.AddDirectory("bar")
@@ -3598,7 +3598,7 @@ autodetect:
     - "apps/foo/**"
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar",
 			Path: "apps/bar",
@@ -3612,7 +3612,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_ExcludesExamples(t *testing.T) {
+func Test_Generate_ExcludesExamples_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	examples := root.AddDirectory("examples")
 	examplesFoo := examples.AddDirectory("foo")
@@ -3626,7 +3626,7 @@ func Test_Generate_ExcludesExamples(t *testing.T) {
 	infraExamplesBaz := infraExamples.AddDirectory("baz")
 	infraExamplesBaz.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "infra",
 			Path: "infra",
@@ -3635,7 +3635,7 @@ func Test_Generate_ExcludesExamples(t *testing.T) {
 	})
 }
 
-func Test_Generate_ExternalTfvars(t *testing.T) {
+func Test_Generate_ExternalTfvars_WithPlugins(t *testing.T) {
 	/*
 	   .
 	   └── ./
@@ -3673,7 +3673,7 @@ func Test_Generate_ExternalTfvars(t *testing.T) {
 	prod := envs.AddDirectory("prod")
 	prod.AddTFVarsFile("prod.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-foo-dev",
 			Path:    "apps/foo",
@@ -3749,7 +3749,7 @@ func Test_Generate_ExternalTfvars(t *testing.T) {
 	})
 }
 
-func Test_Generate_ForceProjectType(t *testing.T) {
+func Test_Generate_ForceProjectType_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	dup := root.AddDirectory("dup")
 	dup.AddTerragruntFileIncludingParentDir()
@@ -3765,7 +3765,7 @@ autodetect:
   force_project_type: terraform
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "dup-dev",
 			Path:    "dup",
@@ -3796,7 +3796,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_ForceProjectTypeNoValidProject(t *testing.T) {
+func Test_Generate_ForceProjectTypeNoValidProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	dup := root.AddDirectory("dup")
 	dup.AddTerragruntFile()
@@ -3809,7 +3809,7 @@ autodetect:
   force_project_type: terraform
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "dup-dev",
 			Path:    "dup",
@@ -3837,7 +3837,7 @@ autodetect:
 	})
 }
 
-func Test_Generate_Grandchild(t *testing.T) {
+func Test_Generate_Grandchild_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -3857,7 +3857,7 @@ func Test_Generate_Grandchild(t *testing.T) {
 	fooEnvs.AddTFVarsFile("dev.tfvars")
 	fooEnvs.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -3909,7 +3909,7 @@ func Test_Generate_Grandchild(t *testing.T) {
 	})
 }
 
-func Test_Generate_Grandparent(t *testing.T) {
+func Test_Generate_Grandparent_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -3929,7 +3929,7 @@ func Test_Generate_Grandparent(t *testing.T) {
 	apps.AddTFVarsFile("prod.tfvars")
 	apps.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-us1-dev",
 			Path:    "apps/bar/us1",
@@ -4029,7 +4029,7 @@ func Test_Generate_Grandparent(t *testing.T) {
 	})
 }
 
-func Test_Generate_GreatAunt(t *testing.T) {
+func Test_Generate_GreatAunt_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 
@@ -4051,7 +4051,7 @@ func Test_Generate_GreatAunt(t *testing.T) {
 	envs.AddTFVarsFile("prod.tfvars")
 	envs.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "infra-apps-bar-us1-dev",
 			Path:    "infra/apps/bar/us1",
@@ -4151,7 +4151,7 @@ func Test_Generate_GreatAunt(t *testing.T) {
 	})
 }
 
-func Test_Generate_IncludeDirs(t *testing.T) {
+func Test_Generate_IncludeDirs_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -4195,7 +4195,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-.hidden-dev",
 			Path: "apps/.hidden",
@@ -4339,7 +4339,7 @@ projects:
 	})
 }
 
-func Test_Generate_IncludesHiddenDirs(t *testing.T) {
+func Test_Generate_IncludesHiddenDirs_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	infracost := root.AddDirectory(".infracost")
@@ -4355,7 +4355,7 @@ func Test_Generate_IncludesHiddenDirs(t *testing.T) {
 	bat := infra.AddDirectory("bat")
 	bat.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: ".infra-bat",
 			Path: ".infra/bat",
@@ -4369,7 +4369,7 @@ func Test_Generate_IncludesHiddenDirs(t *testing.T) {
 	})
 }
 
-func Test_Generate_MaxSearchDepth(t *testing.T) {
+func Test_Generate_MaxSearchDepth_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 	foo := infra.AddDirectory("foo")
@@ -4390,7 +4390,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-foo",
 			Path: "infra/foo",
@@ -4398,7 +4398,7 @@ projects:
 	})
 }
 
-func Test_Generate_ModuleCalls(t *testing.T) {
+func Test_Generate_ModuleCalls_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 
@@ -4417,7 +4417,7 @@ func Test_Generate_ModuleCalls(t *testing.T) {
 	prod := infra.AddDirectory("prod")
 	prod.AddTerraformWithModuleCallToSource("../modules/is_called")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "infra-dev",
 			Path: "infra/dev",
@@ -4443,7 +4443,7 @@ func Test_Generate_ModuleCalls(t *testing.T) {
 	})
 }
 
-func Test_Generate_ModuleCallsWithTemplate(t *testing.T) {
+func Test_Generate_ModuleCallsWithTemplate_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	infra := root.AddDirectory("infra")
 
@@ -4479,7 +4479,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-dev",
 			Path: "infra/dev",
@@ -4512,7 +4512,7 @@ projects:
 	})
 }
 
-func Test_Generate_ModulesAndExternalTfvars(t *testing.T) {
+func Test_Generate_ModulesAndExternalTfvars_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	db := root.AddDirectory("db")
@@ -4532,7 +4532,7 @@ func Test_Generate_ModulesAndExternalTfvars(t *testing.T) {
 
 	root.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "db-dev",
 			Path:    "db/dev",
@@ -4566,7 +4566,7 @@ func Test_Generate_ModulesAndExternalTfvars(t *testing.T) {
 	})
 }
 
-func Test_Generate_MultiDescendents(t *testing.T) {
+func Test_Generate_MultiDescendents_WithPlugins(t *testing.T) {
 	/*
 		If a var file is a descendent of multiple root modules, it should only
 		be linked with the nearest one in the hierarchy
@@ -4624,7 +4624,7 @@ func Test_Generate_MultiDescendents(t *testing.T) {
 	appsEnvs := apps.AddDirectory("envs")
 	appsEnvs.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -4724,7 +4724,7 @@ func Test_Generate_MultiDescendents(t *testing.T) {
 	})
 }
 
-func Test_Generate_Parent(t *testing.T) {
+func Test_Generate_Parent_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	apps := root.AddDirectory("apps")
 
@@ -4737,7 +4737,7 @@ func Test_Generate_Parent(t *testing.T) {
 	apps.AddTFVarsFile("prod.tfvars")
 	apps.AddTFVarsFile("default.tfvars")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name:    "apps-bar-dev",
 			Path:    "apps/bar",
@@ -4789,7 +4789,7 @@ func Test_Generate_Parent(t *testing.T) {
 	})
 }
 
-func Test_Generate_SkipEnvInTemplate(t *testing.T) {
+func Test_Generate_SkipEnvInTemplate_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	env := root.AddDirectory("environment")
 	env.AddDirectory("legacy").AddTFVarsFile("terraform.tfvars")
@@ -4810,7 +4810,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "dev",
 			Path: ".",
@@ -4832,7 +4832,7 @@ projects:
 	})
 }
 
-func Test_Generate_AutodetectWithNestedTfvars(t *testing.T) {
+func Test_Generate_AutodetectWithNestedTfvars_WithPlugins(t *testing.T) {
 	/*
 		/
 			app1
@@ -4874,7 +4874,7 @@ func Test_Generate_AutodetectWithNestedTfvars(t *testing.T) {
 	app2env.AddTFVarsFile("staging.tfvars")
 	app2.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "app1-prod",
 			Path: "app1",
@@ -4942,7 +4942,7 @@ func Test_Generate_AutodetectWithNestedTfvars(t *testing.T) {
 	})
 }
 
-func Test_Generate_TemplatedDetectedProjects(t *testing.T) {
+func Test_Generate_TemplatedDetectedProjects_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	dev := root.AddDirectory("dev")
 	dev.AddTerraformFileWithProviderBlock("main.tf")
@@ -4965,7 +4965,7 @@ projects:
 {{- end }}
 `
 
-	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Path: "dev",
 			Name: "dev",
@@ -4987,11 +4987,11 @@ projects:
 	})
 }
 
-func Test_Generate_CFNYAML(t *testing.T) {
+func Test_Generate_CFNYAML_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddCFNYAML()
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "template",
 			Path: "template.yml",
@@ -5000,11 +5000,11 @@ func Test_Generate_CFNYAML(t *testing.T) {
 	})
 }
 
-func Test_Generate_CFNJSON(t *testing.T) {
+func Test_Generate_CFNJSON_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddCFNJSON()
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "template",
 			Path: "template.json",
@@ -5013,13 +5013,13 @@ func Test_Generate_CFNJSON(t *testing.T) {
 	})
 }
 
-func Test_Generate_CFNYAML_InsideTFProject(t *testing.T) {
+func Test_Generate_CFNYAML_InsideTFProject_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tfDir := root.AddDirectory("tf")
 	tfDir.AddCFNYAML()
 	tfDir.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
 			Name: "tf",
 			Path: "tf",
@@ -5029,7 +5029,7 @@ func Test_Generate_CFNYAML_InsideTFProject(t *testing.T) {
 	)
 }
 
-func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
+func Test_Generate_CDK_DetectsAppsButDoesNotSynth_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	cdkDir := root.AddDirectory("cdk-app")
 
@@ -5039,7 +5039,7 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 
 	synthCalled := false
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.NotNil(t, generated)
@@ -5052,7 +5052,7 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 	require.Len(t, generated.Projects, 0)
 }
 
-func Test_TerragruntDependenciesTracked(t *testing.T) {
+func Test_TerragruntDependenciesTracked_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5064,7 +5064,7 @@ terraform {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5073,7 +5073,7 @@ terraform {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
 }
 
-func Test_TerragruntNestedDependenciesTracked(t *testing.T) {
+func Test_TerragruntNestedDependenciesTracked_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5091,7 +5091,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5101,7 +5101,7 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
-func Test_TerragruntNestedDependenciesTracked_NonDefaultName(t *testing.T) {
+func Test_TerragruntNestedDependenciesTracked_NonDefaultName_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5119,7 +5119,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5129,7 +5129,7 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/whatever.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
-func Test_TerragruntNestedDependenciesTracked_Template(t *testing.T) {
+func Test_TerragruntNestedDependenciesTracked_Template_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5147,7 +5147,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5157,7 +5157,7 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
-func Test_TerragruntNestedDependenciesTracked_HarcodedPath(t *testing.T) {
+func Test_TerragruntNestedDependenciesTracked_HarcodedPath_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5175,7 +5175,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5185,7 +5185,7 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
-func Test_TerragruntNestedDependenciesTracked_TemplateWithInterpolation(t *testing.T) {
+func Test_TerragruntNestedDependenciesTracked_TemplateWithInterpolation_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5203,7 +5203,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5213,7 +5213,7 @@ include {
 	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/something.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
-func Test_Generate_CiscoStacks(t *testing.T) {
+func Test_Generate_CiscoStacks_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
 	// Create a cisco stacks structure: stacks/<stack>/base + stacks/<stack>/layers/<layer>
@@ -5225,35 +5225,35 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 	layers.AddDirectory("dev")
 	layers.AddDirectory("prod")
 
-	testConfigGeneration(t, root.Path(), []*config.Project{
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
 		{
-			Name: "stacks/my-stack/layer/dev",
+			Name: "stacks-my-stack-layers-dev",
 			Path: "stacks/my-stack/layers/dev",
 			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
-				"stacks/my-stack/base/**",
-				"stacks/my-stack/*.tfvars.jinja",
+				"environments/dev/**",
 				"stacks/*.tf",
 				"stacks/*.tfvars.jinja",
-				"environments/dev/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/my-stack/base/**",
 			},
 		},
 		{
-			Name: "stacks/my-stack/layer/prod",
+			Name: "stacks-my-stack-layers-prod",
 			Path: "stacks/my-stack/layers/prod",
 			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
-				"stacks/my-stack/base/**",
-				"stacks/my-stack/*.tfvars.jinja",
+				"environments/prod/**",
 				"stacks/*.tf",
 				"stacks/*.tfvars.jinja",
-				"environments/prod/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/my-stack/base/**",
 			},
 		},
 	})
 }
 
-func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
+func Test_TerraformDuplicateDependenciesRemoved_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 	tf := root.AddDirectory("tf")
 	tf.AddTerraformFileWithProviderBlock("main.tf")
@@ -5263,7 +5263,7 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	project1.AddTerraformWithModuleCallToSource("../tf")
 	project1.AddTerraformWithModuleCallToSource("../tf")
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have one project")

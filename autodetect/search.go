@@ -1,6 +1,7 @@
 package autodetect
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,12 +13,12 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	hcljson "github.com/hashicorp/hcl/v2/json"
+	"github.com/infracost/config/plugin"
 	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
 )
 
-func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error) {
-
+func SearchForProjects(ctx context.Context, rootDir, template string, identifier *plugin.Identifier) ([]Project, []RootModule, error) {
 	var rawConfig YAML
 
 	if template != "" {
@@ -27,7 +28,6 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 		} else if err != nil {
 			return nil, nil, fmt.Errorf("failed to read autodetect config from template: %s", err)
 		}
-
 	}
 
 	config, err := rawConfig.Compile()
@@ -35,26 +35,32 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 		return nil, nil, fmt.Errorf("autodetect configuration problem: %s", err)
 	}
 
-	tree, err := buildDirectoryTree(rootDir, rootDir, config, 0, nil, rootDir)
+	tree, err := newTreeBuilder(identifier, rootDir, config, rootDir).build(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to detect projects: %w", err)
 	}
 
 	tree.ModifyTFVarFileEnvs(config)
 
-	projectNodes := tree.FindProjects()
+	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config)
 
-	// exclude projects which have terragrunt and are included by a child
-	filteredProjects := make([]*Node, 0, len(projectNodes))
-	// we only include a terragrunt project if there are no children which include a parent
+	return expandProjects(projectNodes, rootDir, config)
+}
+
+// filterProjects runs the pre-expansion pipeline: dropping projects that
+// shouldn't appear in the final output, decorating the tree with linked var
+// files, and gathering the module sources needed by downstream filters.
+// Returns the surviving project nodes in walk order.
+func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Config) []*Node {
+	// exclude terragrunt projects whose children include the parent's terragrunt files
+	filtered := make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
 		// we only check if there are terragrunt files, we don;t care if the project type was overridden
 		if !project.Terragrunt.HasFiles {
-			filteredProjects = append(filteredProjects, project)
+			filtered = append(filtered, project)
 			continue
 		}
 		var includes bool
-		// we only include a terragrunt project if there are no children which include a parent
 		project.VisitDescendants(func(child *Node) bool {
 			for _, filename := range []string{"terragrunt.hcl", "terragrunt.hcl.json"} {
 				if slices.Contains(child.Terragrunt.IncludedOutsideTerragruntFiles, filepath.Join(project.AbsolutePath, filename)) {
@@ -65,10 +71,10 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 			return true
 		})
 		if !includes {
-			filteredProjects = append(filteredProjects, project)
+			filtered = append(filtered, project)
 		}
 	}
-	projectNodes = filteredProjects
+	projectNodes = filtered
 
 	// grab all unique local module sources
 	moduleSources := map[string]struct{}{}
@@ -88,35 +94,32 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 	tree.AssociateTFVarFilesByProjectName(config)
 
 	// skip terraform projects which have been included as a module by another project
-	filteredProjects = make([]*Node, 0, len(projectNodes))
+	filtered = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
 		if _, ok := moduleSources[project.AbsolutePath]; !ok {
-			filteredProjects = append(filteredProjects, project)
+			filtered = append(filtered, project)
 		}
 	}
-	projectNodes = filteredProjects
+	projectNodes = filtered
 
-	// filter out projects which should not be used
-	filteredProjects = make([]*Node, 0, len(projectNodes))
+	// drop projects rejected by shouldUseProject, with a forced fallback if it would empty the list
+	filtered = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
-
 		if len(projectNodes) == 1 || !config.shouldUseProject(rootDir, project, moduleSources, false) {
 			continue
 		}
-		filteredProjects = append(filteredProjects, project)
+		filtered = append(filtered, project)
 	}
-	if len(filteredProjects) > 0 {
-		projectNodes = filteredProjects
+	if len(filtered) > 0 {
+		projectNodes = filtered
 	} else {
-		// if we filtered out all of the projects with shouldUseProject, we can fall back to forcing
 		for _, project := range projectNodes {
-
 			if !config.shouldUseProject(rootDir, project, nil, true) {
 				continue
 			}
-			filteredProjects = append(filteredProjects, project)
+			filtered = append(filtered, project)
 		}
-		projectNodes = filteredProjects
+		projectNodes = filtered
 	}
 
 	// skip all terraform projects if terragrunt is present in the repo
@@ -124,28 +127,35 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 	for _, project := range projectNodes {
 		if project.IsTerragrunt() {
 			hasTerragrunt = true
+			break
 		}
 	}
-	filteredProjects = make([]*Node, 0, len(projectNodes))
-	for _, project := range projectNodes {
-		if project.IsTerraform() && hasTerragrunt && !config.shouldIncludeDir(rootDir, project.AbsolutePath) {
-			continue
+	if hasTerragrunt {
+		filtered = make([]*Node, 0, len(projectNodes))
+		for _, project := range projectNodes {
+			if project.IsTerraform() && !config.shouldIncludeDir(rootDir, project.AbsolutePath) {
+				continue
+			}
+			filtered = append(filtered, project)
 		}
-		filteredProjects = append(filteredProjects, project)
+		projectNodes = filtered
 	}
-	projectNodes = filteredProjects
 
 	// remove cfn projects that lie within a tf/tg project
-	filteredProjects = make([]*Node, 0, len(projectNodes))
+	filtered = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
-		if project.IsCloudFormation() && project.IsInsideProject() {
+		if (!project.IsTerragrunt() && !project.IsTerraform()) && project.IsInsideProject() {
 			continue
 		}
-		filteredProjects = append(filteredProjects, project)
+		filtered = append(filtered, project)
 	}
-	projectNodes = filteredProjects
+	return filtered
+}
 
-	// duplicate projects by env
+// expandProjects materialises one or more Project entries per surviving node,
+// duplicating terraform projects across detected environments where var files
+// supply env-specific overrides.
+func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Project, []RootModule, error) {
 	projects := make([]Project, 0, len(projectNodes))
 	rootModules := make([]RootModule, 0, len(projectNodes))
 	for _, project := range projectNodes {
@@ -168,7 +178,7 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 
 		var envFiles []TFVarsFile
 		var globalFiles []string
-		var deps []string
+		deps := project.DependencyPaths
 
 		projectBase := filepath.Base(relativePath)
 		projectBaseIsEnv := config.EnvMatcher.IsEnvName(projectBase)
@@ -210,9 +220,7 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 			}
 		}
 
-		sort.Slice(globalFiles, func(i, j int) bool {
-			return globalFiles[i] < globalFiles[j]
-		})
+		slices.Sort(globalFiles)
 
 		// we need to switch "**" paths for "./**" because yaml will freak out if the dormer isn't quoted properly, and config templates
 		// probably aren't going to remember to do this - may as well remove the footgun
@@ -222,19 +230,9 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 			}
 		}
 
-		sort.Slice(deps, func(i, j int) bool {
-			return deps[i] < deps[j]
-		})
+		slices.Sort(deps)
 
-		var projectType ProjectType
-		switch {
-		case project.IsTerraform():
-			projectType = ProjectTypeTerraform
-		case project.IsTerragrunt():
-			projectType = ProjectTypeTerragrunt
-		case project.IsCloudFormation():
-			projectType = ProjectTypeCloudFormation
-		}
+		projectType := project.ProjectType
 
 		// dedup the deps list
 		deps = dedupeStringList(deps)
@@ -268,9 +266,7 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 					tfvarFiles = append(tfvarFiles, rel)
 				}
 
-				sort.Slice(tfvarFiles, func(i, j int) bool {
-					return tfvarFiles[i] < tfvarFiles[j]
-				})
+				slices.Sort(tfvarFiles)
 
 				envSpecificProjectName := projectName
 				if !projectBaseIsEnv {
@@ -314,515 +310,6 @@ func SearchForProjects(rootDir, template string) ([]Project, []RootModule, error
 	})
 
 	return projects, rootModules, nil
-}
-
-type Node struct {
-	Name           string
-	AbsolutePath   string
-	Children       []*Node
-	Terragrunt     TerragruntFlags
-	Terraform      TerraformFlags
-	CloudFormation CloudFormationFlags
-	TFVars         TFVarsFlags
-	Depth          int
-	Parent         *Node
-}
-
-func (n *Node) IsRoot() bool {
-	return n.Parent == nil
-}
-
-func (n *Node) LinkTFVarFiles(tfVarFiles []TFVarsFile, limitIfLinkedEnv bool) {
-	var hasEnv bool
-	for _, tfVarFile := range tfVarFiles {
-		if n.LinkTFVarFile(tfVarFile, false) && !tfVarFile.IsGlobal {
-			hasEnv = true
-		}
-	}
-	if hasEnv && limitIfLinkedEnv {
-		n.Terraform.LimitLinkedVarFilesToExistingEnvs = true
-	}
-}
-
-func (n *Node) LinkTFVarFile(tfVarFile TFVarsFile, limitIfLinkedEnv bool) bool {
-	if !tfVarFile.IsGlobal && n.Terraform.LimitLinkedVarFilesToExistingEnvs {
-		exists := false
-		for _, existing := range n.Terraform.LinkedTFVarFiles {
-			if existing.Env == tfVarFile.Env {
-				exists = true
-				break
-			}
-		}
-		if !exists {
-			return false
-		}
-	}
-	if !tfVarFile.IsGlobal && limitIfLinkedEnv {
-		n.Terraform.LimitLinkedVarFilesToExistingEnvs = true
-	}
-	n.Terraform.LinkedTFVarFiles = append(n.Terraform.LinkedTFVarFiles, tfVarFile)
-	return true
-}
-
-func (n *Node) IsProject() bool {
-	return n.IsTerraform() || n.IsTerragrunt() || n.IsCloudFormation()
-}
-
-func (n *Node) HasProjects() bool {
-	if n.IsProject() {
-		return true
-	}
-	for _, child := range n.Children {
-		if child.HasProjects() {
-			return true
-		}
-	}
-	return false
-}
-
-func (n *Node) FindProjects() []*Node {
-	var projects []*Node
-	if n.IsProject() {
-		projects = append(projects, n)
-	}
-	for _, child := range n.Children {
-		projects = append(projects, child.FindProjects()...)
-	}
-	return projects
-}
-
-func (n *Node) IsTerraform() bool {
-	return n.Terraform.HasFiles && !n.Terragrunt.HasFiles
-}
-
-func (n *Node) IsTerragrunt() bool {
-	return n.Terragrunt.HasFiles
-}
-
-func (n *Node) IsCloudFormation() bool {
-	return n.CloudFormation.IsCloudFormation
-}
-
-func (n *Node) IsInsideProject() bool {
-	if n == nil {
-		return false
-	}
-	n = n.Parent
-	for n != nil {
-		if n.IsProject() {
-			return true
-		}
-		n = n.Parent
-	}
-	return false
-}
-
-func (n *Node) VisitDescendants(fn func(n *Node) bool) {
-	if fn == nil {
-		return
-	}
-	for _, child := range n.Children {
-		if !fn(child) {
-			return
-		}
-		child.VisitDescendants(fn)
-	}
-}
-
-func (n *Node) WalkInward(fn func(n *Node)) {
-	if fn == nil {
-		return
-	}
-	for _, child := range n.Children {
-		child.WalkInward(fn)
-	}
-	fn(n)
-}
-
-func (n *Node) WalkOutward(fn func(n *Node)) {
-	if fn == nil {
-		return
-	}
-	fn(n)
-	for _, child := range n.Children {
-		child.WalkOutward(fn)
-	}
-}
-
-func (n *Node) IsExclusivelyTFVarsDirectory() bool {
-	return n.TFVars.HasFiles && !n.IsTerraform() && !n.IsTerragrunt()
-}
-
-func (n *Node) DescendantsWithAssignableVarFiles() []*Node {
-	var descendants []*Node
-	for _, child := range n.Children {
-		if child.IsExclusivelyTFVarsDirectory() && !child.TFVars.Used {
-			descendants = append(descendants, child)
-		}
-	}
-	// otherwise look for more distant descendants
-	for _, child := range n.Children {
-		descendants = append(descendants, child.DescendantsWithAssignableVarFiles()...)
-	}
-	return descendants
-}
-
-func (n *Node) IsNonEmpty() bool {
-	return n.IsTerraform() || n.IsTerragrunt() || n.IsExclusivelyTFVarsDirectory()
-}
-
-func (n *Node) ChildNodes() []*Node {
-	var children []*Node
-	for _, child := range n.Children {
-		if child.IsNonEmpty() {
-			children = append(children, child)
-		}
-	}
-
-	if len(children) > 0 {
-		return children
-	}
-
-	for _, child := range n.Children {
-		children = append(children, child.ChildNodes()...)
-	}
-
-	return children
-}
-
-func (n *Node) CanLinkTFVarsFiles() bool {
-	return n.IsTerraform() || (n.IsTerragrunt() && n.Terragrunt.LinkTFVars)
-}
-
-func (n *Node) AssociateLocalTFVarFiles() {
-	n.WalkInward(func(n *Node) {
-
-		// don't assign var files to non-project paths
-		if !n.CanLinkTFVarsFiles() {
-			return
-		}
-
-		if n.TFVars.HasFiles {
-			n.LinkTFVarFiles(n.TFVars.Files, true)
-
-			n.TFVars.Used = true
-		}
-	})
-}
-
-func (n *Node) GetSiblings() []*Node {
-	if n.Parent == nil {
-		return nil
-	}
-	var siblings []*Node
-	for _, child := range n.Parent.Children {
-		if child != n {
-			siblings = append(siblings, child)
-		}
-	}
-	return siblings
-}
-
-// AssociateChildTFVarFiles makes sure that any projects with directories which
-// contain var files are associated with the project. These are only associated
-// if they are within 2 levels of the project and not if the child directory is a
-// valid sibling directory.
-func (n *Node) AssociateChildTFVarFiles() {
-	n.WalkInward(func(n *Node) {
-
-		// don't assign var files to non-terraform paths
-		if !n.CanLinkTFVarsFiles() {
-			return
-		}
-
-		descendants := n.DescendantsWithAssignableVarFiles()
-
-		for _, descendant := range descendants {
-			// if the child has already been associated with a project skip it as the var
-			// directory has already been associated with a root module which is a closer
-			// relation to it than the current root path.
-			if descendant.TFVars.Used {
-				continue
-			}
-
-			depth := descendant.Depth - n.Depth
-			if depth > 3 {
-				continue
-			}
-
-			// if the child dir is also a valid sibling diretory, AND there are more valid
-			// sibling directories further up the hierarchy, skip it, because we want to prefer
-			// siblings in this case.
-			siblingHasProject := false
-			siblings := descendant.GetSiblings()
-			for _, sibling := range siblings {
-				if (sibling.CanLinkTFVarsFiles()) && len(sibling.Terraform.LinkedTFVarFiles) == 0 {
-					siblingHasProject = true
-					break
-				}
-			}
-			if siblingHasProject {
-				ancestorHasSiblingDir := false
-				parent := n
-				for parent != nil {
-					for _, sib := range parent.GetSiblings() {
-						if sib.IsExclusivelyTFVarsDirectory() {
-							ancestorHasSiblingDir = true
-							break
-						}
-					}
-					if ancestorHasSiblingDir {
-						break
-					}
-					parent = parent.Parent
-				}
-				if ancestorHasSiblingDir {
-					continue
-				}
-			}
-
-			n.LinkTFVarFiles(descendant.TFVars.Files, false)
-			descendant.TFVars.Used = true
-		}
-	})
-}
-
-func (n *Node) AssociateSiblingTFVarFiles() {
-	n.WalkOutward(func(n *Node) {
-		var rootPaths []*Node
-		var varDirs []*Node
-		for _, node := range n.Children {
-			if node.CanLinkTFVarsFiles() {
-				rootPaths = append(rootPaths, node)
-			}
-
-			if node.IsExclusivelyTFVarsDirectory() && !node.TFVars.Used {
-				varDirs = append(varDirs, node)
-			}
-		}
-
-		for _, path := range rootPaths {
-			if len(path.Terraform.LinkedTFVarFiles) == 0 {
-				for _, dir := range varDirs {
-					dir.TFVars.Used = true
-					path.LinkTFVarFiles(dir.TFVars.Files, false)
-				}
-			}
-		}
-	})
-}
-
-func (n *Node) UnusedParentVarFiles() []TFVarsFile {
-
-	if n.Parent == nil {
-		return nil
-	}
-
-	var varFiles []TFVarsFile
-	if n.Parent.TFVars.HasFiles && !n.Parent.TFVars.Used {
-		varFiles = append(varFiles, n.Parent.TFVars.Files...)
-	}
-
-	return append(varFiles, n.Parent.UnusedParentVarFiles()...)
-}
-
-func (n *Node) AssociateParentTFVarFiles() {
-	n.WalkInward(func(n *Node) {
-		varFiles := n.UnusedParentVarFiles()
-		if n.CanLinkTFVarsFiles() {
-			n.LinkTFVarFiles(varFiles, false)
-		}
-	})
-}
-
-// Pibling is the gender-neutral term for aunt/uncle (TFVars files are non-binary)
-func (n *Node) AssociatePiblingTFVarFiles() {
-
-	n.WalkInward(func(n *Node) {
-		if n.IsProject() {
-			varFiles := n.UnusedParentVarFiles()
-			for _, varFile := range varFiles {
-				varFile.Owner.TFVars.Used = true
-			}
-		}
-	})
-
-	// then find all tfvars files that are not used and link them to their common parent
-	n.WalkInward(func(n *Node) {
-		if !n.TFVars.HasFiles || n.TFVars.Used || n.IsRoot() {
-			return
-		}
-
-		commonParent := n.FindTfvarsCommonParent()
-		if commonParent == nil {
-			return
-		}
-
-		for _, node := range commonParent.ChildNodesRecursivelyExcluding(n, nil) {
-			if node.CanLinkTFVarsFiles() {
-				node.LinkTFVarFiles(n.TFVars.Files, false)
-			}
-		}
-
-	})
-
-	n.WalkInward(func(n *Node) {
-		varFiles := n.UnusedParentVarFiles()
-		for _, varFile := range varFiles {
-			varFile.Owner.TFVars.Used = true
-		}
-	})
-}
-
-// by default, the env name of a tfvar file is based on its filename, e.g. prod.tfvars -> prod
-// however, the env name can also be inferred from the directory name, e.g. dev/config.tfvars -> dev
-func (n *Node) ModifyTFVarFileEnvs(autodetect *Config) {
-	n.WalkInward(func(n *Node) {
-		// walk every tfvars directory
-		if !n.IsExclusivelyTFVarsDirectory() {
-			return
-		}
-
-		var possibleDirEnvName string
-
-		// find parent dirs that contain nothing but tfvars files
-		parent := n
-		for len(parent.ChildNodesRecursivelyExcluding(n, func(n *Node) bool {
-			return !n.IsProject()
-		})) == 0 {
-
-			base := filepath.Base(parent.AbsolutePath)
-			if autodetect.EnvMatcher.IsEnvName(base) {
-				possibleDirEnvName = autodetect.EnvMatcher.EnvName(base)
-				break
-			}
-
-			parent = parent.Parent
-			if parent == nil || parent.IsRoot() {
-				break
-			}
-		}
-
-		// no env dir found for this tfvars directory, move on
-		if possibleDirEnvName == "" {
-			return
-		}
-
-		for i, f := range n.TFVars.Files {
-			// if this file has no env, or we prefer the folder name for env, set it to the possible dir env
-			if f.IsGlobal || autodetect.PreferFolderNameForEnv {
-				f.Env = possibleDirEnvName
-				f.IsGlobal = false
-				n.TFVars.Files[i] = f
-			}
-		}
-
-	})
-}
-
-// AssociateTFVarFilesByProjectName associates tfvars files with projects of the same name
-// and disassociates the tfvars from other projects. For example, foo.tfvars would be linked
-// to the "foo" projects and unlinked from others. If no project is found with the same name
-// the tfvars file is left as is, and no linking/unlinking is performed.
-func (n *Node) AssociateTFVarFilesByProjectName(autodetect *Config) {
-
-	found := make(map[string]bool)
-	n.WalkOutward(func(n *Node) {
-		base := filepath.Base(n.AbsolutePath)
-		for _, varFile := range n.Terraform.LinkedTFVarFiles {
-			name := autodetect.EnvMatcher.clean(varFile.Name)
-			if base == name {
-				found[varFile.AbsolutePath] = true
-			}
-		}
-	})
-
-	// filter terraform var files from the root paths that have
-	// the same name as another root directory. This means that
-	// terraform var files that are scoped to a specific project
-	// are not added to another project.
-	n.WalkOutward(func(n *Node) {
-		base := filepath.Base(n.AbsolutePath)
-		var filtered []TFVarsFile
-		for _, varFile := range n.Terraform.LinkedTFVarFiles {
-			name := autodetect.EnvMatcher.clean(varFile.Name)
-			if found[varFile.AbsolutePath] && base != name {
-				continue
-			}
-			filtered = append(filtered, varFile)
-		}
-		n.Terraform.LinkedTFVarFiles = filtered
-	})
-
-}
-
-// look at each path_override in turn, if the override has an "only" list:
-// - if any "only" rule is matched, allow the env, otherwise disallow it
-// look at each path_override in turn, if the override has an "exclude" list:
-// - if any "exclude" rule is matched, disallow the env, otherwise continue
-// finally, after processing all rules, allow the env
-func (n *Node) isPathAllowedForEnv(relativePath, env string, autodetect *Config) bool {
-	if len(autodetect.PathOverrides) == 0 {
-		return true
-	}
-	for _, override := range autodetect.PathOverrides {
-		if override.Path.Match(relativePath) {
-			if len(override.Only) > 0 {
-				// if any "only" rule is matched, alow the env
-				return slices.Contains(override.Only, env)
-			}
-		}
-	}
-	for _, override := range autodetect.PathOverrides {
-		if override.Path.Match(relativePath) {
-			if slices.Contains(override.Exclude, env) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// ChildNodesRecursivelyExcluding collects all the child nodes of the current node,
-// excluding the given root node.
-func (n *Node) ChildNodesRecursivelyExcluding(exclude *Node, excludeFunc func(n *Node) bool) []*Node {
-	var children []*Node
-	for _, child := range n.Children {
-		if excludeFunc != nil && excludeFunc(child) {
-			continue
-		}
-		if child != exclude {
-			children = append(children, child)
-		}
-	}
-
-	for _, child := range n.Children {
-		if child != exclude {
-			children = append(children, child.ChildNodesRecursivelyExcluding(exclude, excludeFunc)...)
-		}
-	}
-
-	return children
-}
-
-// FindTfvarsCommonParent returns the first parent directory that has a child
-// directory with a root Terraform project.
-func (n *Node) FindTfvarsCommonParent() *Node {
-	parent := n.Parent
-
-	for {
-		if parent == nil {
-			return nil
-		}
-
-		if len(parent.ChildNodesRecursivelyExcluding(n, func(n *Node) bool {
-			return !n.IsTerraform() && !n.IsTerragrunt()
-		})) > 0 {
-			return parent
-		}
-
-		parent = parent.Parent
-	}
 }
 
 type TerragruntFlags struct {
@@ -878,7 +365,6 @@ func parseHCLJSONFile(src []byte, absPath string) (*hcl.File, error) {
 const maxTFVarSize = 1 * 1024 * 1024
 
 func isTerraformVarFile(absPath string, autodetect *Config, allowedDirs []string) bool {
-
 	name := filepath.Base(absPath)
 
 	for _, defaultExt := range defaultTFVarExtensions {
@@ -975,141 +461,6 @@ func readFileWithSymlinkResolution(path string, allowedDirs []string) ([]byte, e
 	return os.ReadFile(resolved)
 }
 
-func buildDirectoryTree(repoRoot, path string, autodetectConfig *Config, depth int, parent *Node, allowedDirs ...string) (*Node, error) {
-
-	path, err := recursivelyResolveSymlink(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve symlink: %w", err)
-	}
-	if !isPathAllowed(path, allowedDirs...) {
-		return nil, fmt.Errorf("path %q is not allowed", path)
-	}
-
-	node := &Node{
-		Name:         filepath.Base(path),
-		Parent:       parent,
-		AbsolutePath: path,
-		Depth:        depth,
-	}
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	for _, entry := range entries {
-
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		fullPath := filepath.Join(path, info.Name())
-
-		var isSymlink bool
-
-		// if entry is symlink
-		if info.Mode()&os.ModeSymlink != 0 {
-
-			isSymlink = true
-
-			// resolve symlink
-			resolved, err := recursivelyResolveSymlink(fullPath)
-			if err != nil {
-				continue
-			}
-			if !isPathAllowed(resolved, allowedDirs...) {
-				continue
-			}
-			info, err = os.Stat(resolved)
-			if err != nil {
-				continue
-			}
-			fullPath = resolved
-		}
-
-		if info.IsDir() {
-			// don't recurse down symlinks, we walk the whole tree anyway
-			if isSymlink {
-				continue
-			}
-			if slices.Contains(defaultExcludedDirs, info.Name()) {
-				continue
-			}
-			if depth+1 < autodetectConfig.MaxSearchDepth {
-				childNode, err := buildDirectoryTree(repoRoot, fullPath, autodetectConfig, depth+1, node, allowedDirs...)
-				if err == nil {
-					node.Children = append(node.Children, childNode)
-				}
-			}
-			continue
-		}
-
-		switch {
-		case strings.HasSuffix(strings.ToLower(info.Name()), ".tf"),
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu"):
-			node.Terraform.HasFiles = true
-			// #nosec G304
-			src, err := os.ReadFile(fullPath)
-			if err != nil {
-				continue
-			}
-			f, err := parseHCLFile(src, fullPath)
-			if err == nil {
-				sniff := sniffTerraform(fullPath, f)
-				node.Terraform.HasBackend = node.Terraform.HasBackend || sniff.hasTerraformBackendBlock
-				node.Terraform.HasProvider = node.Terraform.HasProvider || sniff.hasProviderBlock
-				node.Terraform.LocalModuleSources = append(node.Terraform.LocalModuleSources, sniff.localModuleSources...)
-			}
-		case strings.HasSuffix(strings.ToLower(info.Name()), ".tf.json"),
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu.json"):
-			// #nosec G304
-			data, err := os.ReadFile(fullPath)
-			if err != nil {
-				continue
-			}
-			f, err := parseHCLJSONFile(data, fullPath)
-			node.Terraform.HasFiles = true
-			if err == nil {
-				sniff := sniffTerraform(fullPath, f)
-				node.Terraform.HasBackend = node.Terraform.HasBackend || sniff.hasTerraformBackendBlock
-				node.Terraform.HasProvider = node.Terraform.HasProvider || sniff.hasProviderBlock
-				node.Terraform.LocalModuleSources = append(node.Terraform.LocalModuleSources, sniff.localModuleSources...)
-			}
-		case info.Name() == "terragrunt.hcl" || info.Name() == "terragrunt.hcl.json":
-			node.Terragrunt.HasFiles = true
-			node.Terragrunt.LinkTFVars = autodetectConfig.LinkTFVarsToTerragrunt
-			sniff, err := sniffTerragrunt(repoRoot, fullPath, allowedDirs...)
-			if err != nil {
-				continue
-			}
-			node.Terragrunt.LocalOutsideTerraformSources = append(node.Terragrunt.LocalOutsideTerraformSources, sniff.Sources...)
-			node.Terragrunt.IncludedOutsideTerragruntFiles = append(node.Terragrunt.IncludedOutsideTerragruntFiles, sniff.Includes...)
-		case IdentifyCloudFormationPath(fullPath):
-			node.Children = append(node.Children, &Node{
-				Name:         info.Name(),
-				AbsolutePath: fullPath,
-				Parent:       node,
-				Depth:        depth + 1,
-				CloudFormation: CloudFormationFlags{
-					IsCloudFormation: true,
-				},
-			})
-		case isTerraformVarFile(fullPath, autodetectConfig, allowedDirs):
-			node.TFVars.HasFiles = true
-			node.TFVars.Files = append(node.TFVars.Files, TFVarsFile{
-				Name:         info.Name(),
-				Env:          autodetectConfig.EnvMatcher.EnvName(info.Name()),
-				IsGlobal:     autodetectConfig.EnvMatcher.IsGlobalVarFile(info.Name()),
-				AbsolutePath: fullPath,
-				Owner:        node,
-			})
-
-		}
-	}
-
-	return node, nil
-}
-
 type terraformSniff struct {
 	hasProviderBlock         bool
 	hasTerraformBackendBlock bool
@@ -1117,7 +468,6 @@ type terraformSniff struct {
 }
 
 func sniffTerraform(fullPath string, file *hcl.File) terraformSniff {
-
 	var sniff terraformSniff
 
 	if file == nil {
@@ -1274,7 +624,6 @@ func isPathInsideDirectory(path, dir string) bool {
 }
 
 func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*terragruntSniffResult, error) {
-
 	// read include dirs and terraform source dirs from a terragrunt.hcl path, limiting to an include depth of 10
 	result, err := sniffTerragruntWithDepthLimit(repoRoot, fullPath, 10, allowedDirs...)
 	if err != nil {
@@ -1313,7 +662,6 @@ func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*
 }
 
 func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowedDirs ...string) (*terragruntSniffResult, error) {
-
 	// sanity check for many/recursive includes
 	if depth <= 0 {
 		return nil, fmt.Errorf("reached maximum depth limit of %d", depth)
@@ -1426,7 +774,6 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 // call to 'find_in_parent_folders' or a simple expression (see [pathFromSimpleExpr]).
 // Any returned path is ensured to be within allowedDirs.
 func pathFromComplexExpr(repoRoot, dir string, expr hcl.Expression, allowedDirs ...string) string {
-
 	val := valueFromComplexExpr(repoRoot, dir, expr, allowedDirs...)
 	if val == "" {
 		return ""
