@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/infracost/config/autodetect"
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/plugin"
 	"github.com/infracost/config/template"
 
 	"gopkg.in/yaml.v3"
@@ -40,19 +42,34 @@ func WithBranch(name string) GenerationOption {
 		o.Branch = name
 	}
 }
+
 func WithBaseBranch(name string) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.BaseBranch = name
 	}
 }
+
 func WithEnvVars(vars map[string]string) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.EnvVars = vars
 	}
 }
+
 func WithIsProjectProductionFunc(f func(project string) bool) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.IsProjectProduction = f
+	}
+}
+
+func WithPluginDir(dir string) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.PluginDir = dir
+	}
+}
+
+func WithDefaultPluginDir(useDefault bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.DefaultPluginDir = useDefault
 	}
 }
 
@@ -64,6 +81,8 @@ type GenerationOptions struct {
 	BaseBranch          string
 	IsProjectProduction func(name string) bool
 	EnvVars             map[string]string
+	PluginDir           string
+	DefaultPluginDir    bool
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -79,10 +98,10 @@ var (
 // Generate takes a repository root  directory and produces a config.
 // Options can be used to supply a template etc.
 func Generate(
+	ctx context.Context,
 	rootDir string,
 	options ...GenerationOption,
 ) (*Config, error) {
-
 	if !filepath.IsAbs(rootDir) {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -105,30 +124,42 @@ func Generate(
 
 	hasProjectsSection := strings.Contains(genOptions.Template, "\nprojects:") || strings.HasPrefix(genOptions.Template, "projects:")
 
-	projects, rootModules, err := autodetect.SearchForProjects(rootDir, genOptions.Template)
+	var identifier *plugin.Identifier
+	if genOptions.DefaultPluginDir || genOptions.PluginDir != "" {
+		var err error
+		identifier, err = plugin.CreateIdentifier(ctx, genOptions.PluginDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+		}
+	}
+
+	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir, genOptions.Template, identifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
 	}
 
-	stacksProjects, stackNames := autodetect.DetectCiscoStacksProjects(rootDir)
-	if len(stackNames) > 0 {
-		// Filter out autodetected terraform projects under stacks/<name>/
-		// where we've detected cisco stacks layers for that stack.
-		filtered := make([]autodetect.Project, 0, len(projects))
-		for _, p := range projects {
-			rel := p.Path
-			if filepath.IsAbs(rel) {
-				rel, _ = filepath.Rel(rootDir, rel)
-			}
-			if strings.HasPrefix(rel, "stacks"+string(filepath.Separator)) {
-				parts := strings.SplitN(rel, string(filepath.Separator), 3)
-				if len(parts) >= 2 && stackNames[parts[1]] {
-					continue
+	// if we're not using plugins, fall back to this legacy ciscostacks bolt-on
+	if identifier == nil {
+		stacksProjects, stackNames := autodetect.DetectCiscoStacksProjects(rootDir)
+		if len(stackNames) > 0 {
+			// Filter out autodetected terraform projects under stacks/<name>/
+			// where we've detected cisco stacks layers for that stack.
+			filtered := make([]autodetect.Project, 0, len(projects))
+			for _, p := range projects {
+				rel := p.Path
+				if filepath.IsAbs(rel) {
+					rel, _ = filepath.Rel(rootDir, rel)
 				}
+				if strings.HasPrefix(rel, "stacks"+string(filepath.Separator)) {
+					parts := strings.SplitN(rel, string(filepath.Separator), 3)
+					if len(parts) >= 2 && stackNames[parts[1]] {
+						continue
+					}
+				}
+				filtered = append(filtered, p)
 			}
-			filtered = append(filtered, p)
+			projects = append(filtered, stacksProjects...)
 		}
-		projects = append(filtered, stacksProjects...)
 	}
 
 	variables := template.Variables{

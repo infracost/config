@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/infracost/config/types"
 )
 
 // DetectCiscoStacksProjects scans for Cisco Stacks projects by looking for
@@ -55,7 +57,7 @@ func DetectCiscoStacksProjects(rootDir string) ([]Project, map[string]bool) {
 			projects = append(projects, Project{
 				Name:            fmt.Sprintf("stacks/%s/layer/%s", stack.Name(), layer.Name()),
 				Path:            fmt.Sprintf("stacks/%s/layers/%s", stack.Name(), layer.Name()),
-				Type:            ProjectTypeCiscoStacks,
+				Type:            types.ProjectTypeCiscoStacks,
 				DependencyPaths: deps,
 				Metadata: map[string]string{
 					"cisco_stacks_stack": stack.Name(),

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -173,17 +174,20 @@ type ProjectAWSConfig struct {
 	AccountID string `yaml:"account_id,omitempty"`
 }
 
-type ProjectType string
+// ProjectType is aliased to types.ProjectType so the canonical definition can
+// live in a child-importable package while existing consumers of
+// config.ProjectType keep compiling unchanged.
+type ProjectType = types.ProjectType
 
 const (
-	ProjectTypeUnknown        ProjectType = ""
-	ProjectTypeTerraform      ProjectType = "terraform"
-	ProjectTypeTerragrunt     ProjectType = "terragrunt"
-	ProjectTypeCloudFormation ProjectType = "cloudformation"
-	ProjectTypeCDKTypeScript  ProjectType = "cdk_typescript"
-	ProjectTypeCDKJavaScript  ProjectType = "cdk_javascript"
-	ProjectTypeCDKPython      ProjectType = "cdk_python"
-	ProjectTypeCiscoStacks    ProjectType = "cisco_stacks"
+	ProjectTypeUnknown        = types.ProjectTypeUnknown
+	ProjectTypeTerraform      = types.ProjectTypeTerraform
+	ProjectTypeTerragrunt     = types.ProjectTypeTerragrunt
+	ProjectTypeCloudFormation = types.ProjectTypeCloudFormation
+	ProjectTypeCDKTypeScript  = types.ProjectTypeCDKTypeScript
+	ProjectTypeCDKJavaScript  = types.ProjectTypeCDKJavaScript
+	ProjectTypeCDKPython      = types.ProjectTypeCDKPython
+	ProjectTypeCiscoStacks    = types.ProjectTypeCiscoStacks
 )
 
 type AWSCredentials struct {
