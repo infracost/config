@@ -35,6 +35,15 @@ type IdentificationResult struct {
 	DependencyPaths []string
 }
 
+// Close terminates every plugin subprocess held by the Identifier. Safe to
+// call once; further use of the Identifier after Close is not supported.
+func (i *Identifier) Close() {
+	for _, p := range i.plugins {
+		p.Close()
+	}
+	i.plugins = nil
+}
+
 func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {

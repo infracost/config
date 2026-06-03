@@ -131,6 +131,7 @@ func Generate(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
 		}
+		defer identifier.Close()
 	}
 
 	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir, genOptions.Template, identifier)
