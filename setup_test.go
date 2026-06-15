@@ -22,7 +22,7 @@ func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantPr
 	if template != "" {
 		opts = append(opts, config.WithTemplate(template))
 	}
-	generated, err := config.Generate(dir, opts...)
+	generated, err := config.Generate(t.Context(), dir, opts...)
 	require.NoError(t, err, "expected nil error, got %v", err)
 	assertProjectsMatch(t, wantProjects, generated.Projects, "generated config does not match expected")
 }

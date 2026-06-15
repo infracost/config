@@ -1,11 +1,14 @@
 package autodetect
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/infracost/config/plugin"
+	"github.com/infracost/config/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,18 +25,6 @@ func IdentifyCloudFormationPath(path string) bool {
 	default:
 		return false
 	}
-}
-
-// IdentifyARMPath returns true if the given path is an ARM deployment
-// template. ARM templates are JSON — Bicep input is transpiled to ARM
-// JSON by callers before the parser sees it (mirrors the CDK→CFN
-// pattern). The schema URL and the `resources[].type` shape are what
-// distinguish ARM JSON from CloudFormation JSON.
-func IdentifyARMPath(path string) bool {
-	if strings.ToLower(filepath.Ext(path)) != ".json" {
-		return false
-	}
-	return identifyARMJSON(path)
 }
 
 type identificationSniff struct {
@@ -89,26 +80,36 @@ func isOfCDKOrigin(path string) bool {
 	return strings.Contains(path, "node_modules") || strings.Contains(path, "infracost.cdk.out")
 }
 
-// armSchemaMarker appears in the $schema URL of every ARM deployment
-// template (resource-group / subscription / management-group / tenant
-// scope all use a URL of the form
+// armSchemaMarker appears in the $schema URL of every ARM deployment template
+// (resource-group / subscription / management-group / tenant scope all use a
+// URL of the form
 // https://schema.management.azure.com/schemas/<version>/deploymentTemplate.json#).
 const armSchemaMarker = "deploymentTemplate.json"
 
-// armResourceTypeMarker is the prefix every ARM resource type carries
-// (e.g. "Microsoft.Storage/storageAccounts"). Used as a fallback signal
-// when the $schema field is absent, e.g. nested templates.
+// armResourceTypeMarker is the prefix every ARM resource type carries (e.g.
+// "Microsoft.Storage/storageAccounts"). Used as a fallback signal when the
+// $schema field is absent, e.g. nested templates.
 const armResourceTypeMarker = "Microsoft."
 
-// armIdentificationSniff captures just enough of an ARM template to
-// distinguish it from other JSON. Resources can be either a list (the
-// original ARM template language) or a map keyed by symbolic name
-// (template language v2), so we deserialize into json.RawMessage and
-// inspect both shapes.
+// IdentifyARMPath returns true if the given path is an ARM JSON deployment
+// template. Bicep is transpiled to ARM JSON before parsing, so only .json is
+// considered here. ARM also has a parser plugin; this inline check keeps
+// autodetection working when no plugin identifier is supplied (parity with
+// CloudFormation).
+func IdentifyARMPath(path string) bool {
+	if strings.ToLower(filepath.Ext(path)) != ".json" {
+		return false
+	}
+	return identifyARMJSON(path)
+}
+
+// armIdentificationSniff captures just enough of an ARM template to distinguish
+// it from other JSON. Resources can be either a list (the original ARM template
+// language) or a map keyed by symbolic name (template language v2), so we
+// deserialize into json.RawMessage and inspect both shapes.
 type armIdentificationSniff struct {
-	Schema     string          `json:"$schema"`
-	ContentVer string          `json:"contentVersion"`
-	Resources  json.RawMessage `json:"resources"`
+	Schema    string          `json:"$schema"`
+	Resources json.RawMessage `json:"resources"`
 }
 
 func (sniff *armIdentificationSniff) IsARM() bool {
@@ -154,4 +155,68 @@ func identifyARMJSON(path string) bool {
 		return false
 	}
 	return sniff.IsARM()
+}
+
+func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin.IdentificationResult {
+	if b.identifier != nil {
+		return b.identifier.IdentifyDirectory(ctx, dir)
+	}
+
+	result := new(plugin.IdentificationResult)
+	result.FileTypes = make(map[string]types.ProjectType)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	dirProjectTypes := make(map[types.ProjectType]struct{})
+
+	for _, entry := range entries {
+
+		if entry.IsDir() {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		switch {
+		case strings.HasSuffix(strings.ToLower(info.Name()), ".tf"),
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu"),
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tf.json"),
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu.json"):
+			dirProjectTypes[types.ProjectTypeTerraform] = struct{}{}
+		case info.Name() == "terragrunt.hcl" || info.Name() == "terragrunt.hcl.json":
+			dirProjectTypes[types.ProjectTypeTerragrunt] = struct{}{}
+		case len(dirProjectTypes) == 0 && IdentifyARMPath(filepath.Join(dir, info.Name())):
+			result.FileTypes[entry.Name()] = types.ProjectTypeARM
+		case len(dirProjectTypes) == 0 && IdentifyCloudFormationPath(filepath.Join(dir, info.Name())):
+			result.FileTypes[entry.Name()] = types.ProjectTypeCloudFormation
+		}
+	}
+
+	if len(dirProjectTypes) > 0 {
+		// file types don't matter if we have a directory type
+		result.FileTypes = nil
+		// if multiple project types are detected, we prioritize terraform over terragrunt
+		if len(dirProjectTypes) > 1 {
+			if _, ok := dirProjectTypes[types.ProjectTypeTerragrunt]; ok {
+				result.DirectoryType = types.ProjectTypeTerragrunt
+			} else if _, ok := dirProjectTypes[types.ProjectTypeCiscoStacks]; ok {
+				result.DirectoryType = types.ProjectTypeCiscoStacks
+			} else {
+				result.DirectoryType = types.ProjectTypeTerraform
+			}
+		} else {
+			for t := range dirProjectTypes {
+				result.DirectoryType = t
+				break
+			}
+		}
+	}
+
+	return result
 }

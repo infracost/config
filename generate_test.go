@@ -9,7 +9,6 @@ import (
 )
 
 func Test_Generate_SimpleTFInRoot(t *testing.T) {
-
 	root := NewFilesystem(t)
 	root.AddFile("main.tf")
 
@@ -25,7 +24,7 @@ func Test_Generate_SimpleTFInRoot(t *testing.T) {
 
 func Test_Generate_NoProjects(t *testing.T) {
 	root := NewFilesystem(t)
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 	require.NoError(t, err)
 	assert.Len(t, generated.Projects, 0)
 }
@@ -1337,7 +1336,6 @@ projects:
 }
 
 func Test_Generate_ParentAndGrandparent(t *testing.T) {
-
 	/*
 			.
 		└── apps
@@ -2036,7 +2034,6 @@ func Test_Generate_Terragrunt(t *testing.T) {
 }
 
 func Test_Generate_SharedEnvVarFiles(t *testing.T) {
-
 	/*
 		└── apps
 		    ├── foo
@@ -2443,7 +2440,6 @@ func Test_Generate_SiblingAndChildPreferChild(t *testing.T) {
 }
 
 func Test_Generate_SiblingAndChildPreferSibling(t *testing.T) {
-
 	/*
 	   # We should link root modules with var files in sibling directories if further
 	   # up the hierarchy there are more var files in sibling directories
@@ -4571,7 +4567,6 @@ func Test_Generate_ModulesAndExternalTfvars(t *testing.T) {
 }
 
 func Test_Generate_MultiDescendents(t *testing.T) {
-
 	/*
 		If a var file is a descendent of multiple root modules, it should only
 		be linked with the nearest one in the hierarchy
@@ -4795,7 +4790,6 @@ func Test_Generate_Parent(t *testing.T) {
 }
 
 func Test_Generate_SkipEnvInTemplate(t *testing.T) {
-
 	root := NewFilesystem(t)
 	env := root.AddDirectory("environment")
 	env.AddDirectory("legacy").AddTFVarsFile("terraform.tfvars")
@@ -4836,11 +4830,9 @@ projects:
 			},
 		},
 	})
-
 }
 
 func Test_Generate_AutodetectWithNestedTfvars(t *testing.T) {
-
 	/*
 		/
 			app1
@@ -4951,7 +4943,6 @@ func Test_Generate_AutodetectWithNestedTfvars(t *testing.T) {
 }
 
 func Test_Generate_TemplatedDetectedProjects(t *testing.T) {
-
 	root := NewFilesystem(t)
 	dev := root.AddDirectory("dev")
 	dev.AddTerraformFileWithProviderBlock("main.tf")
@@ -4994,11 +4985,9 @@ projects:
 			},
 		},
 	})
-
 }
 
 func Test_Generate_CFNYAML(t *testing.T) {
-
 	root := NewFilesystem(t)
 	root.AddCFNYAML()
 
@@ -5012,7 +5001,6 @@ func Test_Generate_CFNYAML(t *testing.T) {
 }
 
 func Test_Generate_CFNJSON(t *testing.T) {
-
 	root := NewFilesystem(t)
 	root.AddCFNJSON()
 
@@ -5026,7 +5014,6 @@ func Test_Generate_CFNJSON(t *testing.T) {
 }
 
 func Test_Generate_CFNYAML_InsideTFProject(t *testing.T) {
-
 	root := NewFilesystem(t)
 	tfDir := root.AddDirectory("tf")
 	tfDir.AddCFNYAML()
@@ -5099,7 +5086,7 @@ func Test_Generate_Bicep_NotAutodetected(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddBicep()
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 	require.NoError(t, err)
 	require.NotNil(t, generated)
 	require.Len(t, generated.Projects, 0)
@@ -5115,7 +5102,7 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 
 	synthCalled := false
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.NotNil(t, generated)
@@ -5140,7 +5127,7 @@ terraform {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5167,7 +5154,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5195,7 +5182,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5223,7 +5210,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5251,7 +5238,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5279,7 +5266,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5303,9 +5290,9 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 
 	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
-			Name:           "stacks/my-stack/layer/dev",
-			Path:           "stacks/my-stack/layers/dev",
-			Type:           config.ProjectTypeCiscoStacks,
+			Name: "stacks/my-stack/layer/dev",
+			Path: "stacks/my-stack/layers/dev",
+			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
 				"stacks/my-stack/base/**",
 				"stacks/my-stack/*.tfvars.jinja",
@@ -5315,9 +5302,9 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 			},
 		},
 		{
-			Name:           "stacks/my-stack/layer/prod",
-			Path:           "stacks/my-stack/layers/prod",
-			Type:           config.ProjectTypeCiscoStacks,
+			Name: "stacks/my-stack/layer/prod",
+			Path: "stacks/my-stack/layers/prod",
+			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
 				"stacks/my-stack/base/**",
 				"stacks/my-stack/*.tfvars.jinja",
@@ -5339,7 +5326,7 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	project1.AddTerraformWithModuleCallToSource("../tf")
 	project1.AddTerraformWithModuleCallToSource("../tf")
 
-	generated, err := config.Generate(root.Path())
+	generated, err := config.Generate(t.Context(), root.Path())
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have one project")

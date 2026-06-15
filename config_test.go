@@ -248,7 +248,7 @@ func TestGenerateFillsCDKBlockWhenFeatureFlagEnabled(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -269,7 +269,7 @@ func TestGenerateDetectsCDK(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp)
+	cfg, err := Generate(t.Context(), tmp)
 	require.NoError(t, err)
 	require.NotEmpty(t, cfg.CDK.Projects)
 }
@@ -281,7 +281,7 @@ func TestGenerateAutodetectsEmptyCDKBlock(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.2
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
 cdk:
 `))
 	require.NoError(t, err)
@@ -497,7 +497,7 @@ func TestGenerate_CDKDefaults_WithTemplate_DefaultsOnly(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -517,7 +517,7 @@ func TestGenerate_CDKDefaults_WithTemplate_PreservesLocalValues(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -544,7 +544,7 @@ func TestGenerate_CDKDefaults_WithTemplate_PartialOverride(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.2
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
 cdk_defaults:
   context:
     org: acme
@@ -571,7 +571,7 @@ func TestGenerate_CDKDefaults_WithTemplate_RepoConfigNoCDKBlock(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
 
-	cfg, err := Generate(tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
