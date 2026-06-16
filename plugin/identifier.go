@@ -44,7 +44,7 @@ func (i *Identifier) Close() {
 	i.plugins = nil
 }
 
-func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string) *IdentificationResult {
+func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
@@ -55,7 +55,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string) *Identif
 		if err != nil || result == nil {
 			continue
 		}
-		if result.Directory {
+		if result.Directory && !singleFileMode {
 			return &IdentificationResult{
 				DirectoryType:   pluginType,
 				FileTypes:       nil,
