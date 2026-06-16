@@ -18,7 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func SearchForProjects(ctx context.Context, rootDir, template string, identifier *plugin.Identifier) ([]Project, []RootModule, error) {
+func SearchForProjects(ctx context.Context, rootDir, template string, identifier *plugin.Identifier, maxSearchDepth int) ([]Project, []RootModule, error) {
 	var rawConfig YAML
 
 	if template != "" {
@@ -33,6 +33,10 @@ func SearchForProjects(ctx context.Context, rootDir, template string, identifier
 	config, err := rawConfig.Compile()
 	if err != nil {
 		return nil, nil, fmt.Errorf("autodetect configuration problem: %s", err)
+	}
+
+	if maxSearchDepth > 0 {
+		config.MaxSearchDepth = maxSearchDepth
 	}
 
 	tree, err := newTreeBuilder(identifier, rootDir, config, rootDir).build(ctx)
