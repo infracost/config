@@ -73,6 +73,12 @@ func WithDefaultPluginDir(useDefault bool) GenerationOption {
 	}
 }
 
+func WithMaxSearchDepth(depth int) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.MaxSearchDepth = depth
+	}
+}
+
 type GenerationOptions struct {
 	Template            string // template content
 	DebugTemplate       bool   // debug template parsing
@@ -83,6 +89,7 @@ type GenerationOptions struct {
 	EnvVars             map[string]string
 	PluginDir           string
 	DefaultPluginDir    bool
+	MaxSearchDepth      int
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -134,7 +141,7 @@ func Generate(
 		defer identifier.Close()
 	}
 
-	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir, genOptions.Template, identifier)
+	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir, genOptions.Template, identifier, genOptions.MaxSearchDepth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
 	}
