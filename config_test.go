@@ -401,7 +401,7 @@ func TestMergeCDKEntriesWithAutodetect_ForgivingExamples(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := mergeCDKEntriesWithAutodetect(tmp, tc.input, cdk.Defaults{})
+			result, err := mergeCDKEntriesWithAutodetect(tmp, tc.input, cdk.Defaults{}, false, false)
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, result)
 		})
@@ -424,7 +424,7 @@ func TestMergeCDKEntriesWithAutodetect_GlobalOverlaysApplyToDetectedEntries(t *t
 		{PackageManifestPaths: []string{"package.json"}},
 	}
 
-	result, err := mergeCDKEntriesWithAutodetect(tmp, input, cdk.Defaults{})
+	result, err := mergeCDKEntriesWithAutodetect(tmp, input, cdk.Defaults{}, false, false)
 	require.NoError(t, err)
 	require.Len(t, result, 2)
 
@@ -456,7 +456,7 @@ func TestMergeCDKEntriesWithAutodetect_GlobalOverlayDoesNotOverrideLocal(t *test
 		},
 	}
 
-	result, err := mergeCDKEntriesWithAutodetect(tmp, input, cdk.Defaults{})
+	result, err := mergeCDKEntriesWithAutodetect(tmp, input, cdk.Defaults{}, false, false)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	require.Equal(t, "foo/cdk.json", result[0].CdkConfigPath)

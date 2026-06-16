@@ -23,15 +23,17 @@ type treeBuilder struct {
 	config                 *Config
 	allowedDirs            []string
 	ignorePermissionErrors bool
+	ignoreHiddenDirs       bool
 }
 
-func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors bool, allowedDirs ...string) *treeBuilder {
+func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors, ignoreHiddenDirs bool, allowedDirs ...string) *treeBuilder {
 	return &treeBuilder{
 		identifier:             identifier,
 		repoRoot:               repoRoot,
 		config:                 config,
 		allowedDirs:            allowedDirs,
 		ignorePermissionErrors: ignorePermissionErrors,
+		ignoreHiddenDirs:       ignoreHiddenDirs,
 	}
 }
 
@@ -152,6 +154,9 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 				continue
 			}
 			if slices.Contains(defaultExcludedDirs, info.Name()) {
+				continue
+			}
+			if b.ignoreHiddenDirs && strings.HasPrefix(info.Name(), ".") {
 				continue
 			}
 			if depth+1 < b.config.MaxSearchDepth {
