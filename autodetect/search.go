@@ -18,12 +18,50 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func SearchForProjects(ctx context.Context, rootDir, template string, identifier *plugin.Identifier, maxSearchDepth int) ([]Project, []RootModule, error) {
+type SearchOption func(*SearchOptions)
+
+type SearchOptions struct {
+	Template               string
+	Identifier             *plugin.Identifier
+	MaxSearchDepth         int
+	IgnorePermissionErrors bool
+}
+
+func WithSearchTemplate(template string) SearchOption {
+	return func(o *SearchOptions) {
+		o.Template = template
+	}
+}
+
+func WithSearchIdentifier(identifier *plugin.Identifier) SearchOption {
+	return func(o *SearchOptions) {
+		o.Identifier = identifier
+	}
+}
+
+func WithSearchMaxDepth(depth int) SearchOption {
+	return func(o *SearchOptions) {
+		o.MaxSearchDepth = depth
+	}
+}
+
+func WithSearchIgnorePermissionErrors(ignore bool) SearchOption {
+	return func(o *SearchOptions) {
+		o.IgnorePermissionErrors = ignore
+	}
+}
+
+func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption) ([]Project, []RootModule, error) {
+	var options SearchOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	var rawConfig YAML
 
-	if template != "" {
+	if options.Template != "" {
 		// if the template has no projects section, we need to add one, so remember this
-		if fromTemplate, err := readAutodetectConfigFromTemplate(template); err == nil && fromTemplate != nil {
+		if fromTemplate, err := readAutodetectConfigFromTemplate(options.Template); err == nil && fromTemplate != nil {
 			rawConfig = *fromTemplate
 		} else if err != nil {
 			return nil, nil, fmt.Errorf("failed to read autodetect config from template: %s", err)
@@ -35,11 +73,11 @@ func SearchForProjects(ctx context.Context, rootDir, template string, identifier
 		return nil, nil, fmt.Errorf("autodetect configuration problem: %s", err)
 	}
 
-	if maxSearchDepth > 0 {
-		config.MaxSearchDepth = maxSearchDepth
+	if options.MaxSearchDepth > 0 {
+		config.MaxSearchDepth = options.MaxSearchDepth
 	}
 
-	tree, err := newTreeBuilder(identifier, rootDir, config, rootDir).build(ctx)
+	tree, err := newTreeBuilder(options.Identifier, rootDir, config, options.IgnorePermissionErrors, rootDir).build(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to detect projects: %w", err)
 	}

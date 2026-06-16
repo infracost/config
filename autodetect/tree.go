@@ -2,7 +2,9 @@ package autodetect
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,18 +18,20 @@ import (
 // each recursive call only needs to pass through state that actually changes
 // per frame (path, depth, parent).
 type treeBuilder struct {
-	identifier  *plugin.Identifier
-	repoRoot    string
-	config      *Config
-	allowedDirs []string
+	identifier             *plugin.Identifier
+	repoRoot               string
+	config                 *Config
+	allowedDirs            []string
+	ignorePermissionErrors bool
 }
 
-func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, allowedDirs ...string) *treeBuilder {
+func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors bool, allowedDirs ...string) *treeBuilder {
 	return &treeBuilder{
-		identifier:  identifier,
-		repoRoot:    repoRoot,
-		config:      config,
-		allowedDirs: allowedDirs,
+		identifier:             identifier,
+		repoRoot:               repoRoot,
+		config:                 config,
+		allowedDirs:            allowedDirs,
+		ignorePermissionErrors: ignorePermissionErrors,
 	}
 }
 
@@ -41,9 +45,13 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		return nil, err
 	}
 
-	path, err := recursivelyResolveSymlink(path)
+	resolvedPath, err := recursivelyResolveSymlink(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve symlink: %w", err)
+		if !b.ignorePermissionErrors || !errors.Is(err, fs.ErrPermission) {
+			return nil, fmt.Errorf("failed to resolve symlink: %w", err)
+		}
+	} else {
+		path = resolvedPath
 	}
 	if !isPathAllowed(path, b.allowedDirs...) {
 		return nil, fmt.Errorf("path %q is not allowed", path)
@@ -58,6 +66,9 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
+		if b.ignorePermissionErrors && errors.Is(err, fs.ErrPermission) {
+			return node, nil
+		}
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
