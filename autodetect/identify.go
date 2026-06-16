@@ -82,7 +82,7 @@ func isOfCDKOrigin(path string) bool {
 
 func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin.IdentificationResult {
 	if b.identifier != nil {
-		return b.identifier.IdentifyDirectory(ctx, dir)
+		return b.identifier.IdentifyDirectory(ctx, dir, b.singleFileMode)
 	}
 
 	result := new(plugin.IdentificationResult)
@@ -107,12 +107,12 @@ func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin
 		}
 
 		switch {
-		case strings.HasSuffix(strings.ToLower(info.Name()), ".tf"),
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu"),
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tf.json"),
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu.json"):
+		case !b.singleFileMode && (strings.HasSuffix(strings.ToLower(info.Name()), ".tf") ||
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu") ||
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tf.json") ||
+			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu.json")):
 			dirProjectTypes[types.ProjectTypeTerraform] = struct{}{}
-		case info.Name() == "terragrunt.hcl" || info.Name() == "terragrunt.hcl.json":
+		case !b.singleFileMode && (info.Name() == "terragrunt.hcl" || info.Name() == "terragrunt.hcl.json"):
 			dirProjectTypes[types.ProjectTypeTerragrunt] = struct{}{}
 		case len(dirProjectTypes) == 0 && IdentifyCloudFormationPath(filepath.Join(dir, info.Name())):
 			result.FileTypes[entry.Name()] = types.ProjectTypeCloudFormation

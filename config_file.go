@@ -162,7 +162,7 @@ func LoadConfigFile(
 	}
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {
-		if err := finalizeCDKConfig(repoPath, cfg); err != nil {
+		if err := finalizeCDKConfig(repoPath, cfg, false, false); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 		}
 	}
@@ -429,13 +429,13 @@ func parseLegacyVersion(content []byte, config *Config) error {
 	return nil
 }
 
-func finalizeCDKConfig(repoPath string, cfg *Config) error {
+func finalizeCDKConfig(repoPath string, cfg *Config, ignorePermissionErrors, ignoreHiddenDirs bool) error {
 	// If no CDK entries and no defaults, nothing to do
 	if len(cfg.CDK.Projects) == 0 && len(cfg.CDK.Defaults.Context) == 0 && len(cfg.CDK.Defaults.Env) == 0 {
 		return nil
 	}
 
-	mergedEntries, err := mergeCDKEntriesWithAutodetect(repoPath, cfg.CDK.Projects, cfg.CDK.Defaults)
+	mergedEntries, err := mergeCDKEntriesWithAutodetect(repoPath, cfg.CDK.Projects, cfg.CDK.Defaults, ignorePermissionErrors, ignoreHiddenDirs)
 	if err != nil {
 		return err
 	}
@@ -443,10 +443,10 @@ func finalizeCDKConfig(repoPath string, cfg *Config) error {
 	return nil
 }
 
-func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, defaults cdk.Defaults) ([]*cdk.ConfigEntry, error) {
+func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, defaults cdk.Defaults, ignorePermissionErrors, ignoreHiddenDirs bool) ([]*cdk.ConfigEntry, error) {
 	if len(entries) == 0 {
 		// If no entries, check if we should autodetect
-		detectedEntries, err := cdk.GenerateConfig(rootPath)
+		detectedEntries, err := cdk.GenerateConfig(rootPath, ignorePermissionErrors, ignoreHiddenDirs)
 		if err != nil {
 			return nil, err
 		}
@@ -480,7 +480,7 @@ func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, 
 		return result, nil
 	}
 
-	detectedEntries, err := cdk.GenerateConfig(rootPath)
+	detectedEntries, err := cdk.GenerateConfig(rootPath, ignorePermissionErrors, ignoreHiddenDirs)
 	if err != nil {
 		return nil, err
 	}

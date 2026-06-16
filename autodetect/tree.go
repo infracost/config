@@ -23,15 +23,19 @@ type treeBuilder struct {
 	config                 *Config
 	allowedDirs            []string
 	ignorePermissionErrors bool
+	ignoreHiddenDirs       bool
+	singleFileMode         bool
 }
 
-func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors bool, allowedDirs ...string) *treeBuilder {
+func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors, ignoreHiddenDirs, singleFileMode bool, allowedDirs ...string) *treeBuilder {
 	return &treeBuilder{
 		identifier:             identifier,
 		repoRoot:               repoRoot,
 		config:                 config,
 		allowedDirs:            allowedDirs,
 		ignorePermissionErrors: ignorePermissionErrors,
+		ignoreHiddenDirs:       ignoreHiddenDirs,
+		singleFileMode:         singleFileMode,
 	}
 }
 
@@ -74,7 +78,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 	idResult := b.identifyDirectory(ctx, path)
 	if idResult != nil {
-		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown {
+		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown && !b.singleFileMode {
 
 			for _, dep := range idResult.DependencyPaths {
 				// dep is relative to "path", but we need it relative to the repo root
@@ -151,7 +155,13 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			if isSymlink {
 				continue
 			}
+			if b.singleFileMode {
+				continue
+			}
 			if slices.Contains(defaultExcludedDirs, info.Name()) {
+				continue
+			}
+			if b.ignoreHiddenDirs && strings.HasPrefix(info.Name(), ".") {
 				continue
 			}
 			if depth+1 < b.config.MaxSearchDepth {
@@ -160,6 +170,10 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 					node.Children = append(node.Children, childNode)
 				}
 			}
+			continue
+		}
+
+		if b.singleFileMode {
 			continue
 		}
 

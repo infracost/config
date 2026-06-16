@@ -85,6 +85,24 @@ func WithIgnorePermissionErrors(ignore bool) GenerationOption {
 	}
 }
 
+func WithIgnoreHiddenDirs(ignore bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.IgnoreHiddenDirs = ignore
+	}
+}
+
+func WithSkipCDK(skip bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.SkipCDK = skip
+	}
+}
+
+func WithSingleFileMode(single bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.SingleFileMode = single
+	}
+}
+
 type GenerationOptions struct {
 	Template               string // template content
 	DebugTemplate          bool   // debug template parsing
@@ -97,6 +115,9 @@ type GenerationOptions struct {
 	DefaultPluginDir       bool
 	MaxSearchDepth         int
 	IgnorePermissionErrors bool
+	IgnoreHiddenDirs       bool
+	SkipCDK                bool
+	SingleFileMode         bool
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -153,6 +174,8 @@ func Generate(
 		autodetect.WithSearchIdentifier(identifier),
 		autodetect.WithSearchMaxDepth(genOptions.MaxSearchDepth),
 		autodetect.WithSearchIgnorePermissionErrors(genOptions.IgnorePermissionErrors),
+		autodetect.WithSearchIgnoreHiddenDirs(genOptions.IgnoreHiddenDirs),
+		autodetect.WithSearchSingleFileMode(genOptions.SingleFileMode),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
@@ -212,8 +235,8 @@ func Generate(
 	}
 
 	// if the user didn't provide a template with a CDK section, try to generate one for them (if needed)
-	if len(output.CDK.Projects) == 0 {
-		cdkConfig, err := cdk.GenerateConfig(rootDir)
+	if !genOptions.SkipCDK && len(output.CDK.Projects) == 0 {
+		cdkConfig, err := cdk.GenerateConfig(rootDir, genOptions.IgnorePermissionErrors, genOptions.IgnoreHiddenDirs)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrCDKConfigGenerationFailed, err)
 		}
@@ -223,8 +246,8 @@ func Generate(
 	}
 
 	// if there are cdk projects, finalize the config by merging in cdk defaults
-	if len(output.CDK.Projects) > 0 {
-		if err := finalizeCDKConfig(rootDir, output); err != nil {
+	if !genOptions.SkipCDK && len(output.CDK.Projects) > 0 {
+		if err := finalizeCDKConfig(rootDir, output, genOptions.IgnorePermissionErrors, genOptions.IgnoreHiddenDirs); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 		}
 	}
