@@ -79,17 +79,24 @@ func WithMaxSearchDepth(depth int) GenerationOption {
 	}
 }
 
+func WithIgnorePermissionErrors(ignore bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.IgnorePermissionErrors = ignore
+	}
+}
+
 type GenerationOptions struct {
-	Template            string // template content
-	DebugTemplate       bool   // debug template parsing
-	RepoName            string
-	Branch              string
-	BaseBranch          string
-	IsProjectProduction func(name string) bool
-	EnvVars             map[string]string
-	PluginDir           string
-	DefaultPluginDir    bool
-	MaxSearchDepth      int
+	Template               string // template content
+	DebugTemplate          bool   // debug template parsing
+	RepoName               string
+	Branch                 string
+	BaseBranch             string
+	IsProjectProduction    func(name string) bool
+	EnvVars                map[string]string
+	PluginDir              string
+	DefaultPluginDir       bool
+	MaxSearchDepth         int
+	IgnorePermissionErrors bool
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -141,7 +148,12 @@ func Generate(
 		defer identifier.Close()
 	}
 
-	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir, genOptions.Template, identifier, genOptions.MaxSearchDepth)
+	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir,
+		autodetect.WithSearchTemplate(genOptions.Template),
+		autodetect.WithSearchIdentifier(identifier),
+		autodetect.WithSearchMaxDepth(genOptions.MaxSearchDepth),
+		autodetect.WithSearchIgnorePermissionErrors(genOptions.IgnorePermissionErrors),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
 	}
