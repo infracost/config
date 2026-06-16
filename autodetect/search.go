@@ -26,6 +26,7 @@ type SearchOptions struct {
 	MaxSearchDepth         int
 	IgnorePermissionErrors bool
 	IgnoreHiddenDirs       bool
+	SingleFileMode         bool
 }
 
 func WithSearchTemplate(template string) SearchOption {
@@ -58,6 +59,12 @@ func WithSearchIgnoreHiddenDirs(ignore bool) SearchOption {
 	}
 }
 
+func WithSearchSingleFileMode(single bool) SearchOption {
+	return func(o *SearchOptions) {
+		o.SingleFileMode = single
+	}
+}
+
 func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption) ([]Project, []RootModule, error) {
 	var options SearchOptions
 	for _, opt := range opts {
@@ -84,7 +91,7 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 		config.MaxSearchDepth = options.MaxSearchDepth
 	}
 
-	tree, err := newTreeBuilder(options.Identifier, rootDir, config, options.IgnorePermissionErrors, options.IgnoreHiddenDirs, rootDir).build(ctx)
+	tree, err := newTreeBuilder(options.Identifier, rootDir, config, options.IgnorePermissionErrors, options.IgnoreHiddenDirs, options.SingleFileMode, rootDir).build(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to detect projects: %w", err)
 	}

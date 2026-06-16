@@ -97,6 +97,12 @@ func WithSkipCDK(skip bool) GenerationOption {
 	}
 }
 
+func WithSingleFileMode(single bool) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.SingleFileMode = single
+	}
+}
+
 type GenerationOptions struct {
 	Template               string // template content
 	DebugTemplate          bool   // debug template parsing
@@ -111,6 +117,7 @@ type GenerationOptions struct {
 	IgnorePermissionErrors bool
 	IgnoreHiddenDirs       bool
 	SkipCDK                bool
+	SingleFileMode         bool
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -168,6 +175,7 @@ func Generate(
 		autodetect.WithSearchMaxDepth(genOptions.MaxSearchDepth),
 		autodetect.WithSearchIgnorePermissionErrors(genOptions.IgnorePermissionErrors),
 		autodetect.WithSearchIgnoreHiddenDirs(genOptions.IgnoreHiddenDirs),
+		autodetect.WithSearchSingleFileMode(genOptions.SingleFileMode),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
