@@ -83,7 +83,7 @@ func (b *treeBuilder) build(ctx context.Context) (*Node, error) {
 // parseTerraformTasks parses all terraform files collected during the walk
 // using a worker pool, then folds the sniff results back onto their nodes
 // single-threaded (so node mutation stays race-free). It returns ctx.Err() if
-// the context was cancelled, so a partial tree is never returned as success.
+// the context was canceled, so a partial tree is never returned as success.
 func (b *treeBuilder) parseTerraformTasks(ctx context.Context) error {
 	if len(b.tfTasks) == 0 {
 		return nil
