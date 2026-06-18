@@ -324,24 +324,19 @@ func sniffTerraformFile(fullPath string, isJSON bool) terraformSniff {
 		return terraformSniff{}
 	}
 
-	// The keyword pre-filter is only applied to HCL files, which dominate by
-	// volume; .tf.json files are rare enough not to be worth special-casing.
-	if isJSON {
-		f, err := parseHCLJSONFile(src, fullPath)
-		if err != nil {
-			return terraformSniff{}
-		}
-		return sniffTerraform(fullPath, f)
-	}
-
-	// Skip the (expensive) HCL parse for files that cannot contain a
+	// Skip the (expensive) parse for files that cannot contain a
 	// provider/backend/module block. Never a false skip: the sniff only ever
-	// reports those blocks, whose HCL keywords must appear as substrings.
+	// reports those blocks, whose keywords must appear as substrings, including
+	// in .tf.json where they are the object keys.
 	if !bytes.Contains(src, kwProvider) && !bytes.Contains(src, kwBackend) && !bytes.Contains(src, kwModule) {
 		return terraformSniff{}
 	}
 
-	f, err := parseHCLFile(src, fullPath)
+	parse := parseHCLFile
+	if isJSON {
+		parse = parseHCLJSONFile
+	}
+	f, err := parse(src, fullPath)
 	if err != nil {
 		return terraformSniff{}
 	}
