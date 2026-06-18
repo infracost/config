@@ -15,4 +15,5 @@ const (
 	ProjectTypeCDKJavaScript  ProjectType = "cdk_javascript"
 	ProjectTypeCDKPython      ProjectType = "cdk_python"
 	ProjectTypeCiscoStacks    ProjectType = "cisco_stacks"
+	ProjectTypeKubernetes     ProjectType = "kubernetes"
 )

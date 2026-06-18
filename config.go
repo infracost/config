@@ -188,6 +188,7 @@ const (
 	ProjectTypeCDKJavaScript  = types.ProjectTypeCDKJavaScript
 	ProjectTypeCDKPython      = types.ProjectTypeCDKPython
 	ProjectTypeCiscoStacks    = types.ProjectTypeCiscoStacks
+	ProjectTypeKubernetes     = types.ProjectTypeKubernetes
 )
 
 type AWSCredentials struct {
