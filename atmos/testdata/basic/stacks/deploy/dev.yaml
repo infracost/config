@@ -1,0 +1,17 @@
+import:
+  - catalog/app
+
+vars:
+  stage: dev
+
+components:
+  terraform:
+    app:
+      vars:
+        instance_type: t3.micro
+      providers:
+        aws:
+          default_tags:
+            tags:
+              Team: platform
+              StateRef: !terraform.output vpc id

@@ -1,0 +1,46 @@
+components:
+  terraform:
+    app:
+      vars:
+        name: myapp
+        templated: "{{ .vars.stage }}-app"
+      providers:
+        aws:
+          default_tags:
+            tags:
+              ManagedBy: atmos
+              Environment: "{{ .vars.stage }}"
+
+    defaults:
+      metadata:
+        type: abstract
+      vars:
+        a: from_defaults
+        b: from_defaults
+      providers:
+        aws:
+          default_tags:
+            tags:
+              BaseTag: from_defaults
+
+    mixin:
+      metadata:
+        type: abstract
+      vars:
+        b: from_mixin
+        c: from_mixin
+
+    app2:
+      metadata:
+        component: app
+        inherits:
+          - defaults
+          - mixin
+      vars:
+        c: from_app2
+        d: from_app2
+
+    withmodule:
+      vars:
+        bucket_name: my-bucket
+

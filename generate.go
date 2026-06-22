@@ -13,6 +13,7 @@ import (
 	"github.com/infracost/config/cdk"
 	"github.com/infracost/config/plugin"
 	"github.com/infracost/config/template"
+	"github.com/infracost/config/types"
 
 	"gopkg.in/yaml.v3"
 )
@@ -205,6 +206,37 @@ func Generate(
 		}
 	}
 
+	// Atmos detection runs regardless of whether plugins are loaded: the plugin
+	// identification path is per-directory and cannot express Atmos's
+	// one-component-directory -> N-stack-projects expansion, so it is detected here
+	// from atmos.yaml. Overlapping plain-Terraform projects under the Atmos
+	// Terraform components directory are filtered out in favour of the Atmos projects.
+	atmosProjects, atmosCovered, atmosErr := autodetect.DetectAtmosProjects(rootDir)
+	if atmosErr != nil {
+		return nil, fmt.Errorf("failed to detect atmos projects: %w", atmosErr)
+	}
+	if len(atmosProjects) > 0 {
+		filtered := make([]autodetect.Project, 0, len(projects))
+		for _, p := range projects {
+			rel := p.Path
+			if filepath.IsAbs(rel) {
+				rel, _ = filepath.Rel(rootDir, rel)
+			}
+			rel = filepath.ToSlash(rel)
+			covered := false
+			for prefix := range atmosCovered {
+				if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				filtered = append(filtered, p)
+			}
+		}
+		projects = append(filtered, atmosProjects...)
+	}
+
 	variables := template.Variables{
 		RepoName:            genOptions.RepoName,
 		Branch:              genOptions.Branch,
@@ -255,18 +287,26 @@ func Generate(
 	if !hasProjectsSection {
 		output.Projects = make([]*Project, 0, len(projects))
 		for _, project := range projects {
-			output.Projects = append(output.Projects, &Project{
+			p := &Project{
 				Path:            project.Path,
 				Name:            project.Name,
 				EnvName:         project.Env,
 				DependencyPaths: project.DependencyPaths,
 				Metadata:        project.Metadata,
 				Terraform: ProjectTerraform{
-					VarFiles:  project.TerraformVarFiles,
+					VarFiles: project.TerraformVarFiles,
+					// Atmos components don't use TF workspaces — the stack name is
+					// the workspace abstraction at the Atmos level, not inside TF.
+					// Setting Workspace to the stack name would alter terraform.workspace
+					// expressions inside component code in ways that diverge from real Atmos.
 					Workspace: project.Env,
 				},
 				Type: ProjectType(project.Type),
-			})
+			}
+			if project.Type == types.ProjectTypeAtmos {
+				p.Terraform.Workspace = ""
+			}
+			output.Projects = append(output.Projects, p)
 		}
 	}
 

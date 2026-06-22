@@ -1,0 +1,21 @@
+{
+  "component": "app",
+  "vars": {
+    "instance_type": "t3.micro",
+    "name": "myapp",
+    "stage": "dev",
+    "templated": "{{ .vars.stage }}-app"
+  },
+  "providers": {
+    "aws": {
+      "default_tags": {
+        "tags": {
+          "Environment": "{{ .vars.stage }}",
+          "ManagedBy": "atmos",
+          "StateRef": "!terraform.output vpc id",
+          "Team": "platform"
+        }
+      }
+    }
+  }
+}

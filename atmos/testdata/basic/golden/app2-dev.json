@@ -1,0 +1,19 @@
+{
+  "component": "app",
+  "vars": {
+    "a": "from_defaults",
+    "b": "from_mixin",
+    "c": "from_app2",
+    "d": "from_app2",
+    "stage": "dev"
+  },
+  "providers": {
+    "aws": {
+      "default_tags": {
+        "tags": {
+          "BaseTag": "from_defaults"
+        }
+      }
+    }
+  }
+}

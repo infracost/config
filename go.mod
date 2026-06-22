@@ -3,6 +3,7 @@ module github.com/infracost/config
 go 1.25.2
 
 require (
+	github.com/bmatcuk/doublestar v1.3.4
 	github.com/gobwas/glob v0.2.3
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.3
