@@ -1,8 +1,13 @@
 // Package atmos resolves Cloud Posse Atmos stack configuration (import merging,
 // inheritance, per-component vars/providers) without the cloudposse/atmos dependency
-// and without evaluating templates or YAML functions. It is the source for Atmos
-// project detection in the config module; the parser plugin keeps a copy for parsing
-// (kept in sync, both guarded by the same golden tests against real Atmos).
+// and without evaluating templates or YAML functions.
+//
+// It is the single source of truth for Atmos resolution, shared across modules: the
+// config module uses it for project detection (DetectAtmosProjects), and the parser
+// module's atmos plugin imports it for parsing (resolving a stack-component into the
+// Terraform inputs it feeds to the parser). It lives in config because config owns
+// project identity (Type/Name/Path/Metadata) and parser already depends on config.
+// Correctness is pinned by golden tests against real `atmos describe` output.
 package atmos
 
 import (
@@ -216,8 +221,10 @@ func isAbstract(section map[string]any) bool {
 	return t == "abstract"
 }
 
-// isEnabled reports whether a component's resolved vars leave it enabled (the Atmos
-// convention vars.enabled: false disables a component in a stack).
+// isEnabled reports whether a component's resolved vars leave it enabled.
+// TODO(FIX-300): only top-level vars.enabled (bool) is checked. Atmos also supports
+// metadata.enabled and metadata.locked; components using those signals are incorrectly
+// enumerated as deployable.
 func isEnabled(vars map[string]any) bool {
 	if v, ok := vars["enabled"].(bool); ok {
 		return v
@@ -461,6 +468,12 @@ func isRemoteImport(imp string) bool {
 }
 
 // stackName derives the stack name from name_pattern using the merged top-level vars.
+// TODO(FIX-300): only {namespace}/{tenant}/{environment}/{stage} tokens are substituted.
+// Custom name_pattern tokens and name_template (Go template) are unsupported — repos
+// using them return an error from Enumerate/Describe, surfaced as a detection error.
+// TODO(FIX-300): duplicate resolved names (two manifests evaluating to the same token
+// values) cause silent first-write-wins — later manifests are skipped. Needs dedup
+// detection with a diagnostic.
 func (c *Config) stackName(merged map[string]any) (string, error) {
 	if c.NamePattern == "" {
 		return "", fmt.Errorf("stacks.name_pattern is required (name_template is not yet supported)")
