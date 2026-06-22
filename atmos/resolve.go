@@ -76,6 +76,13 @@ type atmosYAML struct {
 	} `yaml:"stacks"`
 }
 
+// IsAtmosRepo reports whether repoBasePath contains an atmos.yaml file.
+// Use this to distinguish "not an Atmos repo" from "Atmos repo with a broken config".
+func IsAtmosRepo(repoBasePath string) bool {
+	_, err := os.Stat(filepath.Join(repoBasePath, "atmos.yaml"))
+	return err == nil
+}
+
 // LoadConfig reads and resolves atmos.yaml under repoBasePath.
 func LoadConfig(repoBasePath string) (*Config, error) {
 	raw, err := os.ReadFile(filepath.Join(repoBasePath, "atmos.yaml")) // #nosec G304 - path is a trusted repo root
@@ -222,9 +229,11 @@ func isAbstract(section map[string]any) bool {
 }
 
 // isEnabled reports whether a component's resolved vars leave it enabled.
-// TODO(FIX-300): only top-level vars.enabled (bool) is checked. Atmos also supports
-// metadata.enabled and metadata.locked; components using those signals are incorrectly
-// enumerated as deployable.
+// TODO(FIX-300): only the component-scoped vars (from resolveComponentConfig) are
+// checked, not the stack-global vars merged by assembleComponent. A stack with global
+// vars.enabled: false still enumerates its components. Also: metadata.enabled and
+// metadata.locked are not honoured. Both gaps over-enumerate; fix before large-scale
+// real-repo acceptance.
 func isEnabled(vars map[string]any) bool {
 	if v, ok := vars["enabled"].(bool); ok {
 		return v

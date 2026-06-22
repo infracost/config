@@ -1,6 +1,8 @@
 package autodetect
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/infracost/config/types"
@@ -37,4 +39,11 @@ func TestDetectAtmosProjects_NotAtmosRepo(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, projects)
 	require.Empty(t, covered)
+}
+
+func TestDetectAtmosProjects_MalformedAtmosYAML(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "atmos.yaml"), []byte(":\n  invalid: yaml: :::"), 0600))
+	_, _, err := DetectAtmosProjects(dir)
+	require.Error(t, err, "a present-but-broken atmos.yaml must surface an error, not silently fall through")
 }

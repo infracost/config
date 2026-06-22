@@ -22,8 +22,13 @@ import (
 func DetectAtmosProjects(rootDir string) ([]Project, map[string]bool, error) {
 	cfg, err := atmos.LoadConfig(rootDir)
 	if err != nil {
-		// Not an Atmos repo or atmos.yaml is unreadable — not an error.
-		return nil, nil, nil
+		// Distinguish "no atmos.yaml" (not an Atmos repo — silent) from "atmos.yaml
+		// present but malformed" (surfaced as an error so the user gets feedback
+		// instead of silently falling through to plain-Terraform detection).
+		if !atmos.IsAtmosRepo(rootDir) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("atmos: failed to load config in %s: %w", rootDir, err)
 	}
 
 	stackComponents, err := atmos.Enumerate(rootDir)
