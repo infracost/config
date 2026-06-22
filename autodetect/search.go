@@ -141,10 +141,13 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 		projectNodes = filtered
 	}
 
-	// remove cfn projects that lie within a tf/tg project
+	// remove cfn projects that lie within a tf/tg project. Only CloudFormation
+	// is dropped here: other file-level parsers (e.g. kubernetes manifests,
+	// app-code call sites) are expected to coexist inside a terraform directory,
+	// so a holistic scan surfaces everything in a mixed repo.
 	filtered = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
-		if (!project.IsTerragrunt() && !project.IsTerraform()) && project.IsInsideProject() {
+		if project.IsCloudFormation() && project.IsInsideProject() {
 			continue
 		}
 		filtered = append(filtered, project)

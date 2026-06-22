@@ -8,15 +8,15 @@ import (
 )
 
 type Node struct {
-	Name            string
-	AbsolutePath    string
-	Children        []*Node
-	ProjectType     types.ProjectType
-	Terragrunt      TerragruntFlags
-	Terraform       TerraformFlags
-	TFVars          TFVarsFlags
-	Depth           int
-	Parent          *Node
+	Name         string
+	AbsolutePath string
+	Children     []*Node
+	ProjectType  types.ProjectType
+	Terragrunt   TerragruntFlags
+	Terraform    TerraformFlags
+	TFVars       TFVarsFlags
+	Depth        int
+	Parent       *Node
 	DependencyPaths []string
 }
 

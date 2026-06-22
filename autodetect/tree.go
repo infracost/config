@@ -63,6 +63,9 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 	idResult := b.identifyDirectory(ctx, path)
 	if idResult != nil {
+		// Whole-directory claim (winner-takes-all by priority) makes this node
+		// the project; terraform/terragrunt/CFN tree+filter heuristics key off
+		// node.ProjectType so they keep working unchanged.
 		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown {
 
 			for _, dep := range idResult.DependencyPaths {
@@ -83,24 +86,27 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			case types.ProjectTypeTerraform:
 				node.Terraform.HasFiles = true
 			}
-		} else {
-			for fileName, fileType := range idResult.FileTypes {
+		}
 
-				resolved, err := recursivelyResolveSymlink(filepath.Join(path, fileName))
-				if err != nil {
-					continue
-				}
-				if !isPathAllowed(resolved, b.allowedDirs...) {
-					continue
-				}
-				node.Children = append(node.Children, &Node{
-					Name:         fileName,
-					AbsolutePath: resolved,
-					Parent:       node,
-					Depth:        depth + 1,
-					ProjectType:  fileType,
-				})
+		// File-level claims become a child project per file. These coexist with
+		// a whole-directory claim above (e.g. kubernetes manifests / app-code
+		// call sites inside a terraform directory).
+		for fileName, fileType := range idResult.FileTypes {
+
+			resolved, err := recursivelyResolveSymlink(filepath.Join(path, fileName))
+			if err != nil {
+				continue
 			}
+			if !isPathAllowed(resolved, b.allowedDirs...) {
+				continue
+			}
+			node.Children = append(node.Children, &Node{
+				Name:         fileName,
+				AbsolutePath: resolved,
+				Parent:       node,
+				Depth:        depth + 1,
+				ProjectType:  fileType,
+			})
 		}
 	}
 
