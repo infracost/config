@@ -244,6 +244,9 @@ func (c *Config) discoverStackFiles() ([]string, error) {
 		if err != nil {
 			return err
 		}
+		// Atmos included/excluded_paths are slash-style globs; normalize so matching
+		// works on Windows (where filepath.Rel yields backslashes).
+		rel = filepath.ToSlash(rel)
 		relNoExt := strings.TrimSuffix(rel, ext)
 		if !c.pathIncluded(rel, relNoExt) {
 			return nil
