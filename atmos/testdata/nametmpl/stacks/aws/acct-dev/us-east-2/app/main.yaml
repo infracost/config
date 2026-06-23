@@ -1,0 +1,11 @@
+import:
+  - ../_defaults
+
+vars:
+  resource_name: "app"
+
+components:
+  terraform:
+    app:
+      vars:
+        instance_type: "t3.micro"

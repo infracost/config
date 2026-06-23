@@ -3,6 +3,7 @@ package atmos
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,9 +56,56 @@ func TestEnumerate_ListsDeployableStackComponents(t *testing.T) {
 func TestManifestPath_RejectsTraversal(t *testing.T) {
 	cfg, err := LoadConfig("testdata/basic")
 	require.NoError(t, err)
-	_, err = cfg.manifestPath("../atmos.yaml")
+	_, err = cfg.manifestPath("../atmos.yaml", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "outside the stacks directory")
+}
+
+// TestManifestPath_FileRelativeImport_RejectsTraversal ensures a "../" import resolved
+// against the importing file's directory still cannot escape the stacks tree.
+func TestManifestPath_FileRelativeImport_RejectsTraversal(t *testing.T) {
+	cfg, err := LoadConfig("testdata/nametmpl")
+	require.NoError(t, err)
+	fromDir := filepath.Join(cfg.StacksBasePath, "aws")
+	_, err = cfg.manifestPath("../../atmos.yaml", fromDir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "outside the stacks directory")
+}
+
+// TestDescribe_NameTemplate guards parity with real Atmos for a repo using
+// stacks.name_template and file-relative ../_defaults imports. Ground truth captured
+// from describe.ExecuteDescribeStacks: stack "acct-dev__app", with account/region
+// propagated through the relative imports.
+func TestDescribe_NameTemplate(t *testing.T) {
+	cfg, err := Describe("testdata/nametmpl", "acct-dev__app", "app")
+	require.NoError(t, err)
+	golden := loadJSON(t, "testdata/nametmpl/golden/app-acct-dev__app.json")
+	require.Equal(t, golden["component"], cfg.FinalComponent)
+	require.Equal(t, golden["vars"], normalizeJSON(t, cfg.Vars))
+	require.Equal(t, golden["providers"], normalizeJSON(t, cfg.Providers))
+}
+
+// TestEnumerate_NameTemplate also covers skip-on-unresolvable: the fixture includes a
+// tenant stack that imports a templated `.yaml.tmpl` catalog manifest, which v1 cannot
+// resolve. That stack must be skipped (not error the whole repo), leaving only the
+// resolvable name_template stack.
+func TestEnumerate_NameTemplate(t *testing.T) {
+	got, err := Enumerate("testdata/nametmpl")
+	require.NoError(t, err)
+	require.Equal(t, []StackComponent{
+		{Stack: "acct-dev__app", Component: "app", FinalComponent: "app"},
+	}, got)
+}
+
+// TestDescribe_SurfacesResolveErrors ensures that when the requested stack is not
+// found, any per-file resolution failures (e.g. the templated tenant stack) are
+// surfaced in the error rather than masked as a bare "not found".
+func TestDescribe_SurfacesResolveErrors(t *testing.T) {
+	_, err := Describe("testdata/nametmpl", "does-not-exist", "app")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found")
+	require.Contains(t, err.Error(), "could not be resolved")
+	require.Contains(t, err.Error(), "multi-tenant")
 }
 
 func TestPathIncluded_MatchesFilenameAndExtensionlessGlobs(t *testing.T) {

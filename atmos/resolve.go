@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/template"
 
 	"github.com/bmatcuk/doublestar"
 	"gopkg.in/yaml.v3"
@@ -129,16 +130,19 @@ func Describe(repoBasePath, stack, component string) (*ComponentConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	var resolveErrs []string
 	for _, rel := range files {
-		merged, err := cfg.resolveManifest(rel, map[string]bool{})
+		merged, err := cfg.resolveManifest(rel, "", map[string]bool{})
 		if err != nil {
-			return nil, err
+			// Skip stack files we can't resolve (templated/`!include`/remote/cycle) so a
+			// sibling unsupported file doesn't block describing a resolvable stack. The
+			// errors are surfaced below if the target stack is never found, so a genuine
+			// failure in the target's own file isn't masked as a plain "not found".
+			resolveErrs = append(resolveErrs, fmt.Sprintf("%s: %v", rel, err))
+			continue
 		}
 		name, err := cfg.stackName(merged)
-		if err != nil {
-			return nil, err
-		}
-		if name != stack {
+		if err != nil || name != stack {
 			continue
 		}
 		out, err := cfg.assembleComponent(stack, component, merged)
@@ -146,10 +150,14 @@ func Describe(repoBasePath, stack, component string) (*ComponentConfig, error) {
 			return nil, err
 		}
 		out.SourceDir = filepath.Join(cfg.TerraformBasePath, out.FinalComponent)
-		if abs, err := cfg.manifestPath(rel); err == nil {
+		if abs, err := cfg.manifestPath(rel, ""); err == nil {
 			out.StackFile = abs
 		}
 		return out, nil
+	}
+	if len(resolveErrs) > 0 {
+		return nil, fmt.Errorf("stack %q not found; %d stack file(s) could not be resolved: %s",
+			stack, len(resolveErrs), strings.Join(resolveErrs, "; "))
 	}
 	return nil, fmt.Errorf("stack %q not found", stack)
 }
@@ -179,9 +187,13 @@ func Enumerate(repoBasePath string) ([]StackComponent, error) {
 	seen := map[string]bool{}
 	var out []StackComponent
 	for _, rel := range files {
-		merged, err := cfg.resolveManifest(rel, map[string]bool{})
+		// Skip stack files we can't resolve (a templated `.tmpl` import, an `!include`
+		// merge, a remote import, a cycle, ...) and keep enumerating the rest, rather
+		// than failing all Atmos detection for one unsupported file. v1 never evaluates
+		// templates or YAML functions, so such stacks are simply not covered.
+		merged, err := cfg.resolveManifest(rel, "", map[string]bool{})
 		if err != nil {
-			return nil, err
+			continue
 		}
 		name, err := cfg.stackName(merged)
 		if err != nil || name == "" {
@@ -296,16 +308,18 @@ func matchGlob(pattern, name string) bool {
 	return err == nil && ok
 }
 
-// resolveManifest loads a manifest (relative to StacksBasePath, with or without
-// extension), recursively resolves its local imports, and deep-merges them in order
-// with the manifest's own content taking precedence. Remote imports are rejected.
-func (c *Config) resolveManifest(rel string, chain map[string]bool) (map[string]any, error) {
-	abs, err := c.manifestPath(rel)
+// resolveManifest loads a manifest, recursively resolves its local imports, and
+// deep-merges them in order with the manifest's own content taking precedence. Remote
+// imports are rejected. fromDir is the directory of the importing manifest, used to
+// resolve "./"/"../" relative imports (empty for top-level discovered stack files,
+// which are relative to StacksBasePath).
+func (c *Config) resolveManifest(imp, fromDir string, chain map[string]bool) (map[string]any, error) {
+	abs, err := c.manifestPath(imp, fromDir)
 	if err != nil {
 		return nil, err
 	}
 	if chain[abs] {
-		return nil, fmt.Errorf("import cycle detected at %q", rel)
+		return nil, fmt.Errorf("import cycle detected at %q", imp)
 	}
 	chain[abs] = true
 	defer delete(chain, abs)
@@ -315,42 +329,49 @@ func (c *Config) resolveManifest(rel string, chain map[string]bool) (map[string]
 		return nil, err
 	}
 
+	dir := filepath.Dir(abs)
 	merged := map[string]any{}
-	for _, imp := range importList(raw[keyImport]) {
-		if isRemoteImport(imp) {
-			return nil, fmt.Errorf("remote import %q is not supported", imp)
+	for _, sub := range importList(raw[keyImport]) {
+		if isRemoteImport(sub) {
+			return nil, fmt.Errorf("remote import %q is not supported", sub)
 		}
-		sub, err := c.resolveManifest(imp, chain)
+		subMerged, err := c.resolveManifest(sub, dir, chain)
 		if err != nil {
 			return nil, err
 		}
-		merged = deepMerge(merged, sub)
+		merged = deepMerge(merged, subMerged)
 	}
 	delete(raw, keyImport)
 	return deepMerge(merged, raw), nil
 }
 
-func (c *Config) manifestPath(rel string) (string, error) {
+// manifestPath resolves an import to an absolute file path. Imports beginning with
+// "./" or "../" are resolved relative to fromDir (the importing manifest's directory),
+// matching Atmos; all others are relative to StacksBasePath. The result is jailed to
+// the stacks tree so a crafted "../" import can't read arbitrary files.
+func (c *Config) manifestPath(imp, fromDir string) (string, error) {
+	base := c.StacksBasePath
+	if (strings.HasPrefix(imp, "./") || strings.HasPrefix(imp, "../")) && fromDir != "" {
+		base = fromDir
+	}
+
 	var candidate string
-	if filepath.Ext(rel) != "" {
-		candidate = filepath.Join(c.StacksBasePath, rel)
+	if filepath.Ext(imp) != "" {
+		candidate = filepath.Join(base, imp)
 	} else {
 		for _, ext := range []string{".yaml", ".yml"} {
-			p := filepath.Join(c.StacksBasePath, rel+ext)
+			p := filepath.Join(base, imp+ext)
 			if _, err := os.Stat(p); err == nil {
 				candidate = p
 				break
 			}
 		}
 		if candidate == "" {
-			return "", fmt.Errorf("manifest %q not found under %s", rel, c.StacksBasePath)
+			return "", fmt.Errorf("manifest %q not found under %s", imp, base)
 		}
 	}
-	// Jail imports to the stacks tree: a manifest must never resolve (after symlink
-	// resolution) outside StacksBasePath, so a malicious "../" import can't read
-	// arbitrary files.
 	if !pathWithin(candidate, c.StacksBasePath) {
-		return "", fmt.Errorf("import %q resolves outside the stacks directory", rel)
+		return "", fmt.Errorf("import %q resolves outside the stacks directory", imp)
 	}
 	return candidate, nil
 }
@@ -476,16 +497,32 @@ func isRemoteImport(imp string) bool {
 	return strings.Contains(imp, "://") || strings.Contains(imp, "::")
 }
 
-// stackName derives the stack name from name_pattern using the merged top-level vars.
-// TODO(FIX-300): only {namespace}/{tenant}/{environment}/{stage} tokens are substituted.
-// Custom name_pattern tokens and name_template (Go template) are unsupported — repos
-// using them return an error from Enumerate/Describe, surfaced as a detection error.
-// TODO(FIX-300): duplicate resolved names (two manifests evaluating to the same token
-// values) cause silent first-write-wins — later manifests are skipped. Needs dedup
-// detection with a diagnostic.
+// stackName derives the stack name from the merged top-level vars, preferring
+// name_template (a Go text/template, as Atmos uses) over name_pattern (token
+// substitution). The template is rendered against {"vars": <merged vars>} with
+// missingkey=error, so a manifest lacking a referenced var (e.g. a _defaults partial)
+// errors and is skipped by callers rather than producing a bogus name.
+// TODO(FIX-300): name_template supports only plain text/template here — Atmos's sprig
+// and gomplate function set is not wired in, so a template using those functions errors
+// and the stack is skipped. name_pattern supports only the standard
+// {namespace}/{tenant}/{environment}/{stage} tokens.
+// TODO(FIX-300): duplicate resolved names (two manifests evaluating to the same name)
+// cause silent first-write-wins — later manifests are skipped. Needs dedup detection
+// with a diagnostic.
 func (c *Config) stackName(merged map[string]any) (string, error) {
+	if c.NameTemplate != "" {
+		tmpl, err := template.New("name").Option("missingkey=error").Parse(c.NameTemplate)
+		if err != nil {
+			return "", fmt.Errorf("parse stacks.name_template: %w", err)
+		}
+		var sb strings.Builder
+		if err := tmpl.Execute(&sb, map[string]any{"vars": asMap(merged[keyVars])}); err != nil {
+			return "", fmt.Errorf("render stacks.name_template: %w", err)
+		}
+		return sb.String(), nil
+	}
 	if c.NamePattern == "" {
-		return "", fmt.Errorf("stacks.name_pattern is required (name_template is not yet supported)")
+		return "", fmt.Errorf("stacks.name_pattern or stacks.name_template is required")
 	}
 	vars := asMap(merged[keyVars])
 	name := c.NamePattern

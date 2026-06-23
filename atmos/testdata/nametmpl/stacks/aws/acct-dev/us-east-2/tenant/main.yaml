@@ -1,0 +1,16 @@
+import:
+  - ../_defaults
+  # A templated catalog import (exists only as a .yaml.tmpl, rendered by Atmos with
+  # this context). v1 can't resolve it, so this whole stack file is skipped.
+  - path: catalog/onboarding/multi-tenant
+    context:
+      tenant: test-tenant
+
+vars:
+  resource_name: "tenant"
+
+components:
+  terraform:
+    app:
+      vars:
+        instance_type: "t3.micro"

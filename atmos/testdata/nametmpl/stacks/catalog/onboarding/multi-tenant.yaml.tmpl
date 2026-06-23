@@ -1,0 +1,4 @@
+# Templated catalog manifest: only exists as .yaml.tmpl and uses Go template syntax,
+# so it is not valid YAML and v1 never renders it. Stacks importing it are skipped.
+vars:
+  tenant_name: '{{ .tenant }}'

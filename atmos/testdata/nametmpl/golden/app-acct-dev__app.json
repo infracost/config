@@ -1,0 +1,10 @@
+{
+  "component": "app",
+  "vars": {
+    "account": "acct-dev",
+    "instance_type": "t3.micro",
+    "region": "us-east-2",
+    "resource_name": "app"
+  },
+  "providers": {}
+}

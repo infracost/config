@@ -1,0 +1,5 @@
+import:
+  - ../_defaults
+
+vars:
+  region: "us-east-2"
