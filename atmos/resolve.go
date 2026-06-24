@@ -506,13 +506,12 @@ func isRemoteImport(imp string) bool {
 // substitution). The template is rendered against {"vars": <merged vars>} with
 // missingkey=error, so a manifest lacking a referenced var (e.g. a _defaults partial)
 // errors and is skipped by callers rather than producing a bogus name.
-// TODO(FIX-300): name_template supports only plain text/template here — Atmos's sprig
-// and gomplate function set is not wired in, so a template using those functions errors
-// and the stack is skipped. name_pattern supports only the standard
-// {namespace}/{tenant}/{environment}/{stage} tokens.
-// TODO(FIX-300): duplicate resolved names (two manifests evaluating to the same name)
-// cause silent first-write-wins — later manifests are skipped. Needs dedup detection
-// with a diagnostic.
+//
+// name_template here is plain text/template only: Atmos's sprig and gomplate function
+// set is not wired in, so a template using those functions errors and the stack is
+// skipped. name_pattern supports only the standard
+// {namespace}/{tenant}/{environment}/{stage} tokens. Two manifests that resolve to the
+// same name collapse first-write-wins; later manifests are skipped.
 func (c *Config) stackName(merged map[string]any) (string, error) {
 	if c.NameTemplate != "" {
 		tmpl, err := template.New("name").Option("missingkey=error").Parse(c.NameTemplate)
