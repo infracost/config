@@ -209,7 +209,12 @@ func Enumerate(repoBasePath string) ([]StackComponent, error) {
 			if err != nil {
 				return nil, err
 			}
-			if !isEnabled(vars) {
+			// Check enabled against the fully-merged vars (stack-global -> terraform-level
+			// -> component), mirroring assembleComponent, so a component disabled by a
+			// global vars.enabled: false is excluded too, not only a component-level one.
+			tf := asMap(merged[keyTerraform])
+			finalVars := deepMerge(deepMerge(asMap(merged[keyVars]), asMap(tf[keyVars])), vars)
+			if !isEnabled(finalVars) {
 				continue
 			}
 			key := name + "\x00" + comp
@@ -240,12 +245,11 @@ func isAbstract(section map[string]any) bool {
 	return t == "abstract"
 }
 
-// isEnabled reports whether a component's resolved vars leave it enabled.
-// TODO(FIX-300): only the component-scoped vars (from resolveComponentConfig) are
-// checked, not the stack-global vars merged by assembleComponent. A stack with global
-// vars.enabled: false still enumerates its components. Also: metadata.enabled and
-// metadata.locked are not honoured. Both gaps over-enumerate; fix before large-scale
-// real-repo acceptance.
+// isEnabled reports whether a component's resolved vars leave it enabled. Callers pass
+// the fully-merged vars (stack-global -> terraform-level -> component) so a component
+// disabled at any level is excluded. Note this intentionally diverges from `atmos
+// describe`, which keeps enabled: false components; we drop them because they create no
+// resources (count 0) and would only add $0 noise projects.
 func isEnabled(vars map[string]any) bool {
 	if v, ok := vars["enabled"].(bool); ok {
 		return v

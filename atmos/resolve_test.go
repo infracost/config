@@ -108,6 +108,16 @@ func TestDescribe_SurfacesResolveErrors(t *testing.T) {
 	require.Contains(t, err.Error(), "multi-tenant")
 }
 
+// TestEnumerate_HonorsGlobalEnabled ensures a component disabled by a stack-global
+// vars.enabled: false is excluded, while one that overrides enabled: true is kept.
+func TestEnumerate_HonorsGlobalEnabled(t *testing.T) {
+	got, err := Enumerate("testdata/globaldisabled")
+	require.NoError(t, err)
+	require.Equal(t, []StackComponent{
+		{Stack: "dev", Component: "app2", FinalComponent: "app2"},
+	}, got)
+}
+
 func TestPathIncluded_MatchesFilenameAndExtensionlessGlobs(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

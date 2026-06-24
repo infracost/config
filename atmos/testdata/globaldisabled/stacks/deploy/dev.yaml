@@ -1,0 +1,14 @@
+vars:
+  stage: dev
+  enabled: false
+
+components:
+  terraform:
+    # Inherits the global enabled: false, so it must be excluded.
+    app:
+      vars:
+        instance_type: t3.micro
+    # Overrides enabled: true at the component level, so it stays.
+    app2:
+      vars:
+        enabled: true
