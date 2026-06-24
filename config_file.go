@@ -71,8 +71,12 @@ func (c *Config) normalize() error {
 			}
 		}
 
-		// inherit the following from base config if not set at project level
-		if project.Terraform.Workspace == "" && c.Terraform.Defaults.Workspace != "" {
+		// inherit the following from base config if not set at project level.
+		// Atmos projects are exempt from workspace inheritance: the Atmos stack is the
+		// workspace abstraction, so they must never carry a Terraform workspace (it would
+		// alter terraform.workspace expressions in component code). generate.go clears it;
+		// skipping it here preserves that, including when a generated config is reloaded.
+		if project.Type != ProjectTypeAtmos && project.Terraform.Workspace == "" && c.Terraform.Defaults.Workspace != "" {
 			project.Terraform.Workspace = c.Terraform.Defaults.Workspace
 		}
 		if project.Terraform.Cloud.Host == "" && c.Terraform.Defaults.Cloud.Host != "" {

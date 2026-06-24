@@ -37,10 +37,32 @@ func TestGenerate_AtmosProjects(t *testing.T) {
 	require.Equal(t, "", app.Terraform.Workspace, "Atmos projects must not set TF workspace to the stack name")
 }
 
-// TestGenerate_AtmosNoProjects_NameTemplate ensures a repo that uses name_template
-// (unsupported in v1) produces zero Atmos projects rather than crashing. The
-// name_template stacks are skipped silently; once name_template support lands the
-// behavior should change. This guards the silent-skip path.
+// TestNormalize_AtmosProjectDoesNotInheritWorkspace guards that an Atmos project keeps
+// its empty Terraform workspace through normalize() even when a global default workspace
+// is set. normalize() runs on both generation and reload of a generated config (which
+// serializes type: atmos), so without the exemption the stack would silently inherit a
+// TF workspace and diverge from real Atmos.
+func TestNormalize_AtmosProjectDoesNotInheritWorkspace(t *testing.T) {
+	c := &Config{
+		Terraform: Terraform{Defaults: TerraformDefaults{Workspace: "global-ws"}},
+		Projects: []*Project{
+			{Name: "tf", Type: ProjectTypeTerraform, Path: "a"},
+			{Name: "atmos", Type: ProjectTypeAtmos, Path: "b"},
+		},
+	}
+	require.NoError(t, c.normalize())
+
+	byName := map[string]*Project{}
+	for _, p := range c.Projects {
+		byName[p.Name] = p
+	}
+	require.Equal(t, "global-ws", byName["tf"].Terraform.Workspace, "non-Atmos projects still inherit the default workspace")
+	require.Equal(t, "", byName["atmos"].Terraform.Workspace, "Atmos projects must not inherit a Terraform workspace")
+}
+
+// TestGenerate_AtmosNoProjects_NameTemplate ensures a name_template repo whose stacks
+// declare no Terraform components produces zero Atmos projects rather than crashing.
+// (name_template itself is supported; here there are simply no components to enumerate.)
 func TestGenerate_AtmosNoProjects_NameTemplate(t *testing.T) {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, "atmos.yaml"), []byte(`
