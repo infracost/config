@@ -229,7 +229,7 @@ func Generate(
 			fmt.Println()
 		}
 
-		if _, err := parseWithAutodetectAllowed(buf.Bytes(), output); err != nil {
+		if _, err := parseWithAutodetectAllowed(buf.Bytes(), output, rootDir); err != nil {
 			return nil, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err)
 		}
 	}
@@ -274,7 +274,7 @@ func Generate(
 		return nil, fmt.Errorf("%w (failed to normalize config file): %s", ErrInvalidConfigYAML, err)
 	}
 
-	if err := output.validate(); err != nil {
+	if err := output.validate(rootDir); err != nil {
 		return nil, fmt.Errorf("%w (failed to validate config file): %s", ErrInvalidConfigYAML, err)
 	}
 
@@ -283,7 +283,7 @@ func Generate(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if _, err = parseConfigFile(raw, genOptions.EnvVars, output); err != nil {
+	if _, err = parseConfigFile(raw, genOptions.EnvVars, output, rootDir); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
