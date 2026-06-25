@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
 	"github.com/infracost/config/types"
 )
@@ -138,7 +139,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		return nil, err
 	}
 
-	resolvedPath, err := recursivelyResolveSymlink(path)
+	resolvedPath, err := security.RecursivelyResolveSymlink(path)
 	if err != nil {
 		if !b.ignorePermissionErrors || !errors.Is(err, fs.ErrPermission) {
 			return nil, fmt.Errorf("failed to resolve symlink: %w", err)
@@ -146,7 +147,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 	} else {
 		path = resolvedPath
 	}
-	if !isPathAllowed(path, b.allowedDirs...) {
+	if !security.IsPathAllowed(path, b.allowedDirs...) {
 		return nil, fmt.Errorf("path %q is not allowed", path)
 	}
 
@@ -190,11 +191,11 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		} else {
 			for fileName, fileType := range idResult.FileTypes {
 
-				resolved, err := recursivelyResolveSymlink(filepath.Join(path, fileName))
+				resolved, err := security.RecursivelyResolveSymlink(filepath.Join(path, fileName))
 				if err != nil {
 					continue
 				}
-				if !isPathAllowed(resolved, b.allowedDirs...) {
+				if !security.IsPathAllowed(resolved, b.allowedDirs...) {
 					continue
 				}
 				node.Children = append(node.Children, &Node{
@@ -224,11 +225,11 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			isSymlink = true
 
 			// resolve symlink
-			resolved, err := recursivelyResolveSymlink(fullPath)
+			resolved, err := security.RecursivelyResolveSymlink(fullPath)
 			if err != nil {
 				continue
 			}
-			if !isPathAllowed(resolved, b.allowedDirs...) {
+			if !security.IsPathAllowed(resolved, b.allowedDirs...) {
 				continue
 			}
 			info, err = os.Stat(resolved)

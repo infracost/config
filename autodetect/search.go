@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	hcljson "github.com/hashicorp/hcl/v2/json"
+	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
 	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
@@ -506,11 +507,11 @@ func hasExtension(filename, ext string) bool {
 }
 
 func readFileWithSymlinkResolution(path string, allowedDirs []string) ([]byte, error) {
-	resolved, err := recursivelyResolveSymlink(path)
+	resolved, err := security.RecursivelyResolveSymlink(path)
 	if err != nil {
 		return nil, err
 	}
-	if !isPathAllowed(resolved, allowedDirs...) {
+	if !security.IsPathAllowed(resolved, allowedDirs...) {
 		return nil, fmt.Errorf("path %s is not allowed", resolved)
 	}
 	// #nosec G304
@@ -693,7 +694,7 @@ func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*
 	dir := filepath.Dir(fullPath)
 	var filtered terragruntSniffResult
 	for _, include := range result.Includes {
-		if !isPathAllowed(include, allowedDirs...) {
+		if !security.IsPathAllowed(include, allowedDirs...) {
 			continue
 		}
 		if slices.Contains(filtered.Includes, include) {
@@ -704,7 +705,7 @@ func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*
 		}
 	}
 	for _, source := range result.Sources {
-		if !isPathAllowed(source, allowedDirs...) {
+		if !security.IsPathAllowed(source, allowedDirs...) {
 			continue
 		}
 		if slices.Contains(filtered.Sources, source) {
@@ -724,7 +725,7 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 	}
 
 	// don't read files outside of the repo and safe dirs
-	if !isPathAllowed(fullPath, allowedDirs...) {
+	if !security.IsPathAllowed(fullPath, allowedDirs...) {
 		return nil, fmt.Errorf("path %q is not allowed", fullPath)
 	}
 
@@ -768,7 +769,7 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 		if src, ok := attrs["source"]; ok {
 			if value := valueFromSimpleExpr(src.Expr); value != "" {
 				path := filepath.Clean(filepath.Join(dir, value))
-				if isPathAllowed(path, allowedDirs...) {
+				if security.IsPathAllowed(path, allowedDirs...) {
 					sniff.Sources = append(sniff.Sources, path)
 				}
 			}
@@ -840,7 +841,7 @@ func pathFromComplexExpr(repoRoot, dir string, expr hcl.Expression, allowedDirs 
 		val = filepath.Join(dir, val)
 	}
 
-	if !isPathAllowed(val, allowedDirs...) {
+	if !security.IsPathAllowed(val, allowedDirs...) {
 		return ""
 	}
 
@@ -886,7 +887,7 @@ func valueFromComplexExpr(repoRoot, dir string, expr hcl.Expression, allowedDirs
 			// look upward up to 10 directories
 			for range 10 {
 				dir = filepath.Dir(dir)
-				if !isPathAllowed(dir, allowedDirs...) {
+				if !security.IsPathAllowed(dir, allowedDirs...) {
 					break
 				}
 				path := filepath.Join(dir, filename)
