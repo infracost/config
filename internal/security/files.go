@@ -2,10 +2,47 @@
 package security
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// SafePath returns path expressed relative to base, for safe inclusion in
+// user-facing errors. Absolute paths (e.g. a runner's working directory) must
+// never be leaked, so if path cannot be made relative to base — or base is
+// empty — only the final path element is returned. The result is always a
+// repo-relative-style string, never the absolute filesystem layout.
+func SafePath(base, path string) string {
+	if base != "" {
+		if rel, err := filepath.Rel(base, path); err == nil {
+			return rel
+		}
+	}
+	return filepath.Base(path)
+}
+
+// SafeErr returns the underlying reason for err with any embedded absolute path
+// stripped, for safe inclusion in user-facing errors. The os file primitives
+// (Open/ReadFile/ReadDir/Stat) wrap their cause in *fs.PathError and the link
+// primitives in *os.LinkError, both of which carry the absolute path in a
+// separate field from the reason; this returns only the reason. Any other error
+// type yields a generic message, so a raw error string can never leak a path.
+func SafeErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err.Error()
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return linkErr.Err.Error()
+	}
+	return "operation failed"
+}
 
 // IsPathAllowed checks if a path is within any of the supplied parent paths.
 // It is the containment security boundary: it resolves symlinks anywhere in

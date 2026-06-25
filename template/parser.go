@@ -1,6 +1,7 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -340,7 +341,14 @@ func (p *Parser) readFile(path string) string {
 	// #nosec G304
 	b, err := os.ReadFile(fullPath)
 	if err != nil {
-		panic(err)
+		// Never surface the raw os error: it embeds the absolute filesystem path
+		// (e.g. the runner's working directory). Report only the relative path the
+		// caller passed. Distinguish a missing file, but for any other cause fall
+		// back to a permission error rather than leaking the underlying reason.
+		if errors.Is(err, fs.ErrNotExist) {
+			panic(fmt.Sprintf("could not read file %q: file does not exist", path))
+		}
+		panic(fmt.Sprintf("could not read file %q: permission denied", path))
 	}
 
 	return string(b)
