@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +26,10 @@ type TerraformRegexSource struct {
 	Replace string `yaml:"replace"`
 }
 
-func (c *Config) validate() error {
+// validate checks the config is well-formed. baseDir is the directory project
+// paths are resolved against (the repo root); when it is non-empty, project
+// paths are confined to it using the symlink-aware security check.
+func (c *Config) validate(baseDir string) error {
 
 	v := c.Version
 	if v == "" {
@@ -42,6 +46,17 @@ func (c *Config) validate() error {
 				return fmt.Errorf("all projects must have a path")
 			}
 			return fmt.Errorf("project with name %q has no path", project.Name)
+		}
+
+		if filepath.IsAbs(project.Path) {
+			return fmt.Errorf("project path %q must be relative, not an absolute directory", project.Path)
+		}
+
+		// Project paths are resolved relative to the config file's directory, so
+		// a path that escapes it (e.g. "../foo" or an in-repo symlink pointing
+		// outside) points outside the allowed root.
+		if baseDir != "" && !security.IsPathAllowed(filepath.Join(baseDir, project.Path), baseDir) {
+			return fmt.Errorf("project path %q is outside the allowed directory", project.Path)
 		}
 	}
 
@@ -156,7 +171,7 @@ func LoadConfigFile(
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
-	cfg, err := parseConfigFile(content, envVars, nil)
+	cfg, err := parseConfigFile(content, envVars, nil, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
@@ -210,7 +225,7 @@ func readConfigVersion(raw []byte) (string, error) {
 	return base.Version, nil
 }
 
-func parseConfigFile(content []byte, envVars map[string]string, target *Config) (*Config, error) {
+func parseConfigFile(content []byte, envVars map[string]string, target *Config, baseDir string) (*Config, error) {
 
 	if target == nil {
 		target = defaultConfig()
@@ -246,14 +261,14 @@ func parseConfigFile(content []byte, envVars map[string]string, target *Config) 
 		return nil, err
 	}
 
-	if err := target.validate(); err != nil {
+	if err := target.validate(baseDir); err != nil {
 		return nil, err
 	}
 
 	return target, nil
 }
 
-func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error) {
+func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) (*Config, error) {
 
 	if target == nil {
 		target = defaultConfig()
@@ -291,7 +306,7 @@ func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error)
 		return nil, err
 	}
 
-	if err := target.validate(); err != nil {
+	if err := target.validate(baseDir); err != nil {
 		return nil, err
 	}
 

@@ -44,11 +44,16 @@ func Test_ConfigVersionChecking(t *testing.T) {
 			content: "version: 0.3\nprojects:\n  - name: test",
 			wantErr: "project with name \"test\" has no path",
 		},
+		{
+			name:    "absolute project path",
+			content: "version: 0.3\nprojects:\n  - path: /etc/secrets",
+			wantErr: `project path "/etc/secrets" must be relative, not an absolute directory`,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := parseConfigFile([]byte(tt.content), nil, nil)
+			cfg, err := parseConfigFile([]byte(tt.content), nil, nil, "")
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
@@ -61,6 +66,68 @@ func Test_ConfigVersionChecking(t *testing.T) {
 
 }
 
+func Test_ConfigProjectPathConfinement(t *testing.T) {
+
+	// baseDir is the repo root that project paths are confined to. An adjacent
+	// directory outside it, plus an in-repo symlink pointing at that outside
+	// directory, let us exercise both lexical (../) and symlink-based escapes.
+	root := t.TempDir()
+	baseDir := filepath.Join(root, "repo")
+	outside := filepath.Join(root, "outside")
+	require.NoError(t, os.MkdirAll(filepath.Join(baseDir, "infra"), 0o755))
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	require.NoError(t, os.Symlink(outside, filepath.Join(baseDir, "escape")))
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr string
+	}{
+		{
+			name: "relative path within base is allowed",
+			path: "infra",
+		},
+		{
+			name: "current directory is allowed",
+			path: ".",
+		},
+		{
+			name:    "parent traversal escapes base",
+			path:    "../outside",
+			wantErr: `project path "../outside" is outside the allowed directory`,
+		},
+		{
+			name:    "nested parent traversal escapes base",
+			path:    "infra/../../outside",
+			wantErr: `project path "infra/../../outside" is outside the allowed directory`,
+		},
+		{
+			name:    "symlink escaping base is rejected",
+			path:    "escape",
+			wantErr: `project path "escape" is outside the allowed directory`,
+		},
+		{
+			// Absolute paths are rejected outright, even when they point inside
+			// the base directory.
+			name:    "absolute path within base is still rejected",
+			path:    filepath.Join(baseDir, "infra"),
+			wantErr: fmt.Sprintf(`project path %q must be relative, not an absolute directory`, filepath.Join(baseDir, "infra")),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := fmt.Sprintf("version: 0.3\nprojects:\n  - path: %s", tt.path)
+			_, err := parseConfigFile([]byte(content), nil, nil, baseDir)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func Test_ErrorSimplification(t *testing.T) {
 
 	content := `
@@ -71,7 +138,7 @@ projects:
   - unknown_field: baz
 `
 
-	_, err := parseConfigFile([]byte(content), nil, nil)
+	_, err := parseConfigFile([]byte(content), nil, nil, "")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid config YAML: invalid config YAML: line 4: field unknown_field not found")
 
