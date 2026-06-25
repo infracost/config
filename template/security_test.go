@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,6 +103,62 @@ func TestParser_matchPaths_confinement(t *testing.T) {
 		assert.NotEqual(t, "evil", m["_dir"],
 			"matchPaths must not return entries reached via an escaping symlink")
 	}
+}
+
+// TestParser_readFile_errorDoesNotLeakAbsolutePath asserts that readFile
+// failures report only the relative path the caller passed and never leak the
+// resolved absolute path (e.g. the runner's working directory) or the raw os
+// error text.
+func TestParser_readFile_errorDoesNotLeakAbsolutePath(t *testing.T) {
+	repo := setupSymlinkRepo(t)
+	p := NewParser(repo, Variables{}, nil)
+
+	// assertNoLeak runs fn (expected to panic) and checks the recovered panic
+	// message contains the relative path but not the absolute repo dir.
+	assertNoLeak := func(t *testing.T, relPath string, fn func()) {
+		t.Helper()
+		defer func() {
+			r := recover()
+			require.NotNil(t, r, "expected a panic")
+			msg, ok := r.(string)
+			require.True(t, ok, "panic value must be a string, got %T", r)
+
+			assert.NotContains(t, msg, repo,
+				"error must not leak the absolute repo path")
+			assert.NotContains(t, msg, filepath.Dir(repo),
+				"error must not leak the parent of the repo path")
+			assert.NotContains(t, msg, string(filepath.Separator)+"private",
+				"error must not leak any absolute filesystem path")
+			assert.Contains(t, msg, relPath,
+				"error should reference the relative path the caller passed")
+		}()
+		fn()
+	}
+
+	// A missing in-repo file: reports "file does not exist", relative path only.
+	assertNoLeak(t, "inside/missing.tf", func() { p.readFile("inside/missing.tf") })
+
+	// A directory (not a regular file) read fails with a non-not-exist error and
+	// must fall back to a uniform "permission denied" without the absolute path.
+	assertNoLeak(t, "inside", func() { p.readFile("inside") })
+}
+
+// TestParser_Compile_readFile_errorDoesNotLeakAbsolutePath drives the real
+// template entrypoint and asserts the surfaced error stays path-clean.
+func TestParser_Compile_readFile_errorDoesNotLeakAbsolutePath(t *testing.T) {
+	repo := setupSymlinkRepo(t)
+	p := NewParser(repo, Variables{}, nil)
+
+	var buf bytes.Buffer
+	err := p.Compile(`{{ readFile "inside/missing.tf" }}`, &buf)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), repo,
+		"surfaced template error must not leak the absolute repo path")
+	assert.NotContains(t, err.Error(), filepath.Dir(repo),
+		"surfaced template error must not leak the parent of the repo path")
+	assert.True(t, strings.Contains(err.Error(), "inside/missing.tf"),
+		"surfaced template error should reference the relative path")
 }
 
 // TestParser_Compile_readFile_blocksIntermediateSymlink drives the real

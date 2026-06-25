@@ -249,7 +249,7 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 			} else {
 				rel, err := filepath.Rel(project.AbsolutePath, tfvarFile.AbsolutePath)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, project.AbsolutePath, err)
+					return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %s", security.SafePath(rootDir, tfvarFile.AbsolutePath), security.SafePath(rootDir, project.AbsolutePath), security.SafeErr(err))
 				}
 				globalFiles = append(globalFiles, rel)
 			}
@@ -317,7 +317,7 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 				for _, env := range envs {
 					rel, err := filepath.Rel(project.AbsolutePath, env.AbsolutePath)
 					if err != nil {
-						return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", envs[0].AbsolutePath, project.AbsolutePath, err)
+						return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %s", security.SafePath(rootDir, env.AbsolutePath), security.SafePath(rootDir, project.AbsolutePath), security.SafeErr(err))
 					}
 
 					tfvarFiles = append(tfvarFiles, rel)
@@ -507,12 +507,16 @@ func hasExtension(filename, ext string) bool {
 }
 
 func readFileWithSymlinkResolution(path string, allowedDirs []string) ([]byte, error) {
+	var base string
+	if len(allowedDirs) > 0 {
+		base = allowedDirs[0]
+	}
 	resolved, err := security.RecursivelyResolveSymlink(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to resolve symlink %q: %s", security.SafePath(base, path), security.SafeErr(err))
 	}
 	if !security.IsPathAllowed(resolved, allowedDirs...) {
-		return nil, fmt.Errorf("path %s is not allowed", resolved)
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(base, resolved))
 	}
 	// #nosec G304
 	return os.ReadFile(resolved)
@@ -726,14 +730,14 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 
 	// don't read files outside of the repo and safe dirs
 	if !security.IsPathAllowed(fullPath, allowedDirs...) {
-		return nil, fmt.Errorf("path %q is not allowed", fullPath)
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(repoRoot, fullPath))
 	}
 
 	// #nosec G304
 	// read the terragrunt file
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read terragrunt file %q: %s", security.SafePath(repoRoot, fullPath), security.SafeErr(err))
 	}
 
 	// parse the terragrunt as either hcl or hcljson

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/infracost/config/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -168,25 +169,28 @@ func findManifestPathsForCDKConfigFile(repoPath, cdkConfigFile, filePattern stri
 }
 
 func getAppFromCDKConfigFile(repoPath string, cdkConfigFile string) (string, error) {
+	// displayPath stays relative to repoPath so errors never leak the absolute
+	// filesystem path (e.g. a runner's working directory).
+	displayPath := cdkConfigFile
 	cdkConfigFile = filepath.Join(repoPath, cdkConfigFile)
 
 	// #nosec G304
 	cdkConfig, err := os.ReadFile(cdkConfigFile)
 	if err != nil {
-		return "", fmt.Errorf("failed to read cdk.json file at %q: %w", cdkConfigFile, err)
+		return "", fmt.Errorf("failed to read cdk.json file at %q: %s", displayPath, security.SafeErr(err))
 	}
 	cdkConfigMap := make(map[string]any)
 	err = json.Unmarshal(cdkConfig, &cdkConfigMap)
 	if err != nil {
-		return "", fmt.Errorf("failed to deserialize cdk.json file at %q: %w", cdkConfigFile, err)
+		return "", fmt.Errorf("failed to deserialize cdk.json file at %q: %w", displayPath, err)
 	}
 	app := cdkConfigMap["app"]
 	if app == nil {
-		return "", fmt.Errorf("%s does not contain an `app` field", cdkConfigFile)
+		return "", fmt.Errorf("%s does not contain an `app` field", displayPath)
 	}
 	appStr, ok := app.(string)
 	if !ok {
-		return "", fmt.Errorf("%s: app field is not a string", cdkConfigFile)
+		return "", fmt.Errorf("%s: app field is not a string", displayPath)
 	}
 	return appStr, nil
 }

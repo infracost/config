@@ -142,13 +142,13 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 	resolvedPath, err := security.RecursivelyResolveSymlink(path)
 	if err != nil {
 		if !b.ignorePermissionErrors || !errors.Is(err, fs.ErrPermission) {
-			return nil, fmt.Errorf("failed to resolve symlink: %w", err)
+			return nil, fmt.Errorf("failed to resolve symlink %q: %s", security.SafePath(b.repoRoot, path), security.SafeErr(err))
 		}
 	} else {
 		path = resolvedPath
 	}
 	if !security.IsPathAllowed(path, b.allowedDirs...) {
-		return nil, fmt.Errorf("path %q is not allowed", path)
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(b.repoRoot, path))
 	}
 
 	node := &Node{
@@ -163,7 +163,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		if b.ignorePermissionErrors && errors.Is(err, fs.ErrPermission) {
 			return node, nil
 		}
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		return nil, fmt.Errorf("failed to read directory %q: %s", security.SafePath(b.repoRoot, path), security.SafeErr(err))
 	}
 
 	idResult := b.identifyDirectory(ctx, path)
