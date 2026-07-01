@@ -317,10 +317,28 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 		// environments. If it implements IdentifyEnvironments, its answer is authoritative and we
 		// use it directly. If it returns codes.Unimplemented (authoritative == false) we use the
 		// fallback below.
+		//
+		// We hand the plugin the var files config has already attributed to this project (including
+		// the cross-directory sibling/pibling association derived by the tree passes) so a
+		// Terraform/Terragrunt plugin can reproduce that attribution instead of re-deriving it. Paths
+		// are relative to the project dir and may escape it (e.g. "../../env/prod.tfvars").
+		var attributedFiles []plugin.AttributedVarFile
+		for _, tfvarFile := range project.Terraform.LinkedTFVarFiles {
+			rel, err := filepath.Rel(project.AbsolutePath, tfvarFile.AbsolutePath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, project.AbsolutePath, err)
+			}
+			attributedFiles = append(attributedFiles, plugin.AttributedVarFile{
+				Path:     rel,
+				Env:      tfvarFile.Env,
+				IsGlobal: tfvarFile.IsGlobal,
+			})
+		}
+
 		var pluginEnvironments []plugin.Environment
 		var authoritative bool
 		if identifier != nil {
-			pluginEnvironments, authoritative = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType)
+			pluginEnvironments, authoritative = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles)
 		}
 
 		switch {

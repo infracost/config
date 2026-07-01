@@ -46,6 +46,19 @@ type Environment struct {
 	DependencyPaths []string
 }
 
+// AttributedVarFile is the plugin-agnostic view of a var file the caller has already attributed
+// to a project (including cross-directory sibling/pibling association) and passes into the
+// IdentifyEnvironments RPC. It mirrors the proto AttributedVarFile message but keeps the generated
+// type out of the autodetect package. Terraform/Terragrunt only - see the proto docs.
+type AttributedVarFile struct {
+	// Path to the file, relative to the project directory; may contain "..".
+	Path string
+	// Env is the resolved environment label; empty when the file applies to all environments.
+	Env string
+	// IsGlobal is true when the file is a global/shared input rather than environment-specific.
+	IsGlobal bool
+}
+
 // Close terminates every plugin subprocess held by the Identifier. Safe to
 // call once; further use of the Identifier after Close is not supported.
 func (i *Identifier) Close() {
@@ -104,7 +117,11 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 //   - true: a plugin answered authoritatively. The returned slice may be empty, which means "this
 //     project genuinely has no variants" (yielding a single project) and must NOT trigger the
 //     fallback.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType) ([]Environment, bool) {
+//
+// attributedFiles carries the var files the caller has already attributed to this project so the
+// owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
+// migration aid; other plugins ignore it.
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile) ([]Environment, bool) {
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
@@ -114,7 +131,16 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 			continue
 		}
 
-		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir})
+		pbAttributedFiles := make([]*pb.AttributedVarFile, 0, len(attributedFiles))
+		for _, f := range attributedFiles {
+			pbAttributedFiles = append(pbAttributedFiles, &pb.AttributedVarFile{
+				Path:     f.Path,
+				Env:      f.Env,
+				IsGlobal: f.IsGlobal,
+			})
+		}
+
+		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir, AttributedFiles: pbAttributedFiles})
 		if err != nil || result == nil {
 			// The RPC is optional: a plugin that doesn't implement it returns codes.Unimplemented,
 			// which arrives here as a non-nil error. We treat that - and any other error - as "no
