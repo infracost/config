@@ -2,11 +2,14 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
 
 	"github.com/infracost/config/types"
 	pb "github.com/infracost/proto/gen/go/infracost/plugin"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Identifier struct {
@@ -118,10 +121,16 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 //     project genuinely has no variants" (yielding a single project) and must NOT trigger the
 //     fallback.
 //
+// A non-nil error means the owning plugin implements the RPC but failed to answer (transport
+// error, timeout, panic, malformed response). This is deliberately distinct from codes.Unimplemented:
+// an unimplemented RPC is the expected forward-compat signal and yields (nil, false, nil) so the
+// caller falls back, whereas a genuine failure is returned so the caller can abort rather than
+// silently degrading to fallback behaviour that produces different results.
+//
 // attributedFiles carries the var files the caller has already attributed to this project so the
 // owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
 // migration aid; other plugins ignore it.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile) ([]Environment, bool) {
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
@@ -141,12 +150,19 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 		}
 
 		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir, AttributedFiles: pbAttributedFiles})
-		if err != nil || result == nil {
-			// The RPC is optional: a plugin that doesn't implement it returns codes.Unimplemented,
-			// which arrives here as a non-nil error. We treat that - and any other error - as "no
-			// authoritative answer" so the caller falls back rather than failing the whole run,
-			// mirroring the lenient handling in IdentifyDirectory above.
-			return nil, false
+		if err != nil {
+			// The RPC is optional: a plugin that doesn't implement it returns codes.Unimplemented.
+			// That is the expected forward-compat signal, so we treat it as "no authoritative answer"
+			// and let the caller fall back. Any other error means a plugin that DOES implement the RPC
+			// failed to answer - we surface it so the caller can abort rather than silently degrade to
+			// fallback behaviour that would produce a different result.
+			if status.Code(err) == codes.Unimplemented {
+				return nil, false, nil
+			}
+			return nil, false, fmt.Errorf("plugin %q failed to identify environments for %q: %w", pluginType, dir, err)
+		}
+		if result == nil {
+			return nil, false, nil
 		}
 
 		environments := make([]Environment, 0, len(result.Environments))
@@ -158,8 +174,8 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 				DependencyPaths: e.DependencyPaths,
 			})
 		}
-		return environments, true
+		return environments, true, nil
 	}
 
-	return nil, false
+	return nil, false, nil
 }
