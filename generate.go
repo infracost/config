@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -255,7 +256,7 @@ func Generate(
 	if !hasProjectsSection {
 		output.Projects = make([]*Project, 0, len(projects))
 		for _, project := range projects {
-			output.Projects = append(output.Projects, &Project{
+			p := &Project{
 				Path:            project.Path,
 				Name:            project.Name,
 				EnvName:         project.Env,
@@ -266,7 +267,19 @@ func Generate(
 					Workspace: project.Env,
 				},
 				Type: ProjectType(project.Type),
-			})
+			}
+
+			// Emit the plugin-specific raw_options blob under plugins.<type>, keyed by the
+			// consuming plugin. Stored as a native YAML map so it stays readable and editable.
+			// The Terraform.* fields above are kept too, as backwards-compatible sugar for
+			// consumers that don't yet read the blob.
+			if opts, err := decodePluginRawOptions(project.RawOptions); err != nil {
+				return nil, fmt.Errorf("%w: failed to decode raw options for project %q: %s", ErrInvalidConfigYAML, project.Path, err)
+			} else if len(opts) > 0 {
+				p.Plugins = map[string]map[string]any{string(project.Type): opts}
+			}
+
+			output.Projects = append(output.Projects, p)
 		}
 	}
 
@@ -288,4 +301,18 @@ func Generate(
 	}
 
 	return output, nil
+}
+
+// decodePluginRawOptions decodes a plugin's JSON raw_options blob into a native map so it can be
+// stored as a readable/editable YAML map under a project's plugins.<name> key. Returns nil for an
+// empty blob.
+func decodePluginRawOptions(raw []byte) (map[string]any, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

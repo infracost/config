@@ -111,6 +111,23 @@ func (c *Config) normalize() error {
 		if project.Terraform.Spacelift.APIKey.Secret == "" && c.Terraform.Defaults.Spacelift.APIKey.Secret != "" {
 			project.Terraform.Spacelift.APIKey.Secret = c.Terraform.Defaults.Spacelift.APIKey.Secret
 		}
+
+		// Merge repo-level plugin defaults (c.Plugins) into the project's matching plugin blob.
+		// This is a generic, schema-agnostic deep merge over the raw YAML types: nested maps
+		// merge recursively, and every other value (scalars and lists alike) is atomic with the
+		// per-project value winning over the global default. Config never needs to understand the shape.
+		for pluginName, globalOpts := range c.Plugins {
+			if len(globalOpts) == 0 {
+				continue
+			}
+			merged := mergePluginBlobs(globalOpts, project.Plugins[pluginName])
+			if len(merged) > 0 {
+				if project.Plugins == nil {
+					project.Plugins = make(map[string]map[string]any, len(c.Plugins))
+				}
+				project.Plugins[pluginName] = merged
+			}
+		}
 	}
 
 	// first sort by path + env to ensure duplicate name resolution uses the same path for each iteration
@@ -146,6 +163,72 @@ func (c *Config) normalize() error {
 
 	return nil
 
+}
+
+// mergePluginBlobs deep-merges a repo-level plugin defaults map (global) with a per-project plugin
+// map (project) and returns the result. It is schema-agnostic: nested maps merge recursively, and
+// every other value (scalars and lists alike) is atomic with the per-project value winning.
+// Neither input is mutated.
+func mergePluginBlobs(global, project map[string]any) map[string]any {
+	merged := deepMergeAny(global, project)
+	if m, ok := merged.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+// deepMergeAny merges project into global following the plugin-merge convention (see
+// mergePluginBlobs). Only maps merge recursively; every other value - scalars AND lists - is
+// treated atomically, with the per-project value winning when it is set.
+func deepMergeAny(global, project any) any {
+	gm, gok := global.(map[string]any)
+	pm, pok := project.(map[string]any)
+	if gok && pok {
+		out := make(map[string]any, len(gm)+len(pm))
+		for k, gv := range gm {
+			// deep-copy global branches. global is the shared repo-level defaults map reused for
+			// every project, so aliasing its nested maps/slices into a project's result would let
+			// a later mutation of one project's blob corrupt the global and every sibling project.
+			out[k] = deepCopyAny(gv)
+		}
+		for k, pv := range pm {
+			if gv, ok := gm[k]; ok {
+				out[k] = deepMergeAny(gv, pv)
+			} else {
+				out[k] = pv
+			}
+		}
+		return out
+	}
+
+	// Non-map values (scalars and lists) are atomic: the per-project value wins, unless the
+	// project didn't set anything, in which case fall back to a copy of the global default. Lists
+	// are deliberately NOT concatenated - a project's list replaces the global one.
+	if project == nil {
+		return deepCopyAny(global)
+	}
+	return project
+}
+
+// deepCopyAny returns a deep copy of a decoded YAML/JSON value (nested maps, slices, scalars) so
+// that a merged result never aliases the shared global-defaults map.
+func deepCopyAny(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			out[k] = deepCopyAny(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, val := range t {
+			out[i] = deepCopyAny(val)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func fileExists(path string) bool {
