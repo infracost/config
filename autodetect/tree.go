@@ -182,6 +182,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			}
 
 			node.ProjectType = pt
+			node.RawOptions = idResult.RawOptions
 			switch pt {
 			case types.ProjectTypeTerragrunt:
 				node.Terragrunt.HasFiles = true
@@ -204,6 +205,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 					Parent:       node,
 					Depth:        depth + 1,
 					ProjectType:  fileType,
+					RawOptions:   idResult.RawOptions,
 				})
 			}
 		}

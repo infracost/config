@@ -18,6 +18,9 @@ type Node struct {
 	Depth           int
 	Parent          *Node
 	DependencyPaths []string
+	// RawOptions is the directory-level seed blob returned by the plugin's IdentifyProjects,
+	// threaded into IdentifyEnvironments. Empty when the plugin does not emit one.
+	RawOptions []byte
 }
 
 func (n *Node) IsRoot() bool {

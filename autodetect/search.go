@@ -340,7 +340,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 		var authoritative bool
 		if identifier != nil {
 			var err error
-			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles)
+			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles, project.RawOptions)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -384,6 +384,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 					DependencyPaths:   escapeStringListForYAML(envDeps),
 					Env:               escapeStringForYAML(env.Name),
 					Type:              projectType,
+					RawOptions:        resolveRawOptions(env.RawOptions, project.RawOptions, projectType, varFiles, env.Name),
 				})
 
 				// record the directories this environment claims so they aren't also emitted as
@@ -408,6 +409,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 				DependencyPaths:   escapeStringListForYAML(deps),
 				Env:               "", // deliberately empty
 				Type:              projectType,
+				RawOptions:        resolveRawOptions(nil, project.RawOptions, projectType, globalFiles, ""),
 			})
 
 		case len(envFiles) > 0 && (project.IsTerraform() || (project.IsTerragrunt() && project.Terragrunt.LinkTFVars)):
@@ -455,6 +457,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 					DependencyPaths:   escapeStringListForYAML(deps),
 					Env:               escapeStringForYAML(envName),
 					Type:              projectType,
+					RawOptions:        resolveRawOptions(nil, project.RawOptions, projectType, tfvarFiles, envName),
 				})
 			}
 
@@ -466,6 +469,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 				DependencyPaths:   escapeStringListForYAML(deps),
 				Env:               "", // deliberately empty
 				Type:              projectType,
+				RawOptions:        resolveRawOptions(nil, project.RawOptions, projectType, globalFiles, ""),
 			})
 		}
 

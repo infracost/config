@@ -36,6 +36,10 @@ type IdentificationResult struct {
 	DirectoryType   types.ProjectType
 	FileTypes       map[string]types.ProjectType
 	DependencyPaths []string
+	// RawOptions is the directory-level seed blob (JSON) the plugin returned from IdentifyProjects.
+	// It is threaded into IdentifyEnvironments so the plugin can refine it per environment. Empty
+	// when the plugin does not emit one.
+	RawOptions []byte
 }
 
 // Environment is the plugin-agnostic view of a single environment (e.g. a dev/staging/prod
@@ -47,6 +51,10 @@ type Environment struct {
 	Path            string
 	Files           []string
 	DependencyPaths []string
+	// RawOptions is the plugin-authored, opaque parse-options blob (JSON) for this environment.
+	// Empty when the plugin does not emit one (e.g. a plugin predating raw_options); the caller
+	// backfills it in that case.
+	RawOptions []byte
 }
 
 // AttributedVarFile is the plugin-agnostic view of a var file the caller has already attributed
@@ -87,6 +95,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 				DirectoryType:   pluginType,
 				FileTypes:       nil,
 				DependencyPaths: result.DependencyPaths,
+				RawOptions:      result.RawOptions,
 			}
 		}
 		if len(result.Files) > 0 && (output == nil || output.DirectoryType == types.ProjectTypeUnknown) {
@@ -104,6 +113,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 				DirectoryType:   "",
 				FileTypes:       m,
 				DependencyPaths: result.DependencyPaths,
+				RawOptions:      result.RawOptions,
 			}
 		}
 	}
@@ -130,7 +140,10 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 // attributedFiles carries the var files the caller has already attributed to this project so the
 // owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
 // migration aid; other plugins ignore it.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile) ([]Environment, bool, error) {
+//
+// seedRawOptions is the directory-level blob the plugin returned from IdentifyProjects, threaded
+// back so the plugin can refine it per environment. It may be empty.
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile, seedRawOptions []byte) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
@@ -149,7 +162,7 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 			})
 		}
 
-		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir, AttributedFiles: pbAttributedFiles})
+		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir, AttributedFiles: pbAttributedFiles, RawOptions: seedRawOptions})
 		if err != nil {
 			// The RPC is optional: a plugin that doesn't implement it returns codes.Unimplemented.
 			// That is the expected forward-compat signal, so we treat it as "no authoritative answer"
@@ -172,6 +185,7 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 				Path:            e.Path,
 				Files:           e.Files,
 				DependencyPaths: e.DependencyPaths,
+				RawOptions:      e.RawOptions,
 			})
 		}
 		return environments, true, nil
