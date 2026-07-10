@@ -33,9 +33,16 @@ func findProject(projects []*config.Project, name string) *config.Project {
 	return nil
 }
 
-// When a plugin does not emit a raw_options blob (as here, with no plugins configured), autodetect
-// backfills it from the data config derived itself, and it is emitted under plugins.<type>.
-func Test_Generate_EmitsBackfilledPluginBlob(t *testing.T) {
+// A terraform project's generated parse options are split across two authors in the plugins.<type>
+// blob: config sideloads the var files it attributed (tfVarsFiles, which depends on cross-directory
+// analysis the plugin doesn't have), and the terraform plugin authors the rest - notably the
+// workspace (the env name) from IdentifyEnvironments.
+//
+// NOTE: the workspace assertion requires a terraform plugin that emits raw_options from
+// IdentifyEnvironments (proto >= v1.158.0). Until that is the latest released plugin,
+// installTestPlugins downloads an older one that does not emit it, so this assertion fails - it
+// starts passing once the new plugins are released.
+func Test_Generate_EmitsPluginBlob(t *testing.T) {
 	root := NewFilesystem(t)
 
 	infraDir := root.AddDirectory("infra")
@@ -61,11 +68,16 @@ func Test_Generate_EmitsBackfilledPluginBlob(t *testing.T) {
 	// ...the data lives only in the plugins.terraform blob now.
 	require.Contains(t, p.Plugins, "terraform")
 	blob := p.Plugins["terraform"]
-	assert.Equal(t, "dev", blob["workspace"])
+
+	// config sideloads the var files it attributed across directories.
 	assert.Equal(t, []string{
 		"../../variables/defaults.tfvars",
 		"../../variables/dev/bla.tfvars",
 	}, toStringSlice(blob["tfVarsFiles"]))
+
+	// the terraform plugin authors the workspace (the env name). Requires the new plugin - see the
+	// note above; fails against older downloaded plugins.
+	assert.Equal(t, "dev", blob["workspace"])
 }
 
 // Repo-level plugin defaults deep-merge into each project's plugin blob during normalization:
