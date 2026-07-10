@@ -54,13 +54,11 @@ func Test_Generate_EmitsBackfilledPluginBlob(t *testing.T) {
 	p := findProject(generated.Projects, "infra-components-foo-dev")
 	require.NotNil(t, p, "expected project infra-components-foo-dev to be generated")
 
-	// the terraform.* sugar is still emitted for backwards compatibility...
-	assert.Equal(t, []string{
-		"../../variables/defaults.tfvars",
-		"../../variables/dev/bla.tfvars",
-	}, p.Terraform.VarFiles)
+	// the deprecated terraform.* fields are no longer emitted...
+	assert.Empty(t, p.Terraform.VarFiles)
+	assert.Empty(t, p.Terraform.Workspace)
 
-	// ...and the same data is now also emitted as the plugins.terraform blob.
+	// ...the data lives only in the plugins.terraform blob now.
 	require.Contains(t, p.Plugins, "terraform")
 	blob := p.Plugins["terraform"]
 	assert.Equal(t, "dev", blob["workspace"])
@@ -108,4 +106,63 @@ projects:
 	// a project with no blob inherits the repo-level defaults wholesale
 	assert.Equal(t, "default", staging.Plugins["terraform"]["workspace"])
 	assert.Equal(t, []string{"global.tfvars"}, toStringSlice(staging.Plugins["terraform"]["tfVarsFiles"]))
+}
+
+// An old-style config that only uses the deprecated terraform.* / aws.* fields is folded into the
+// plugins blob on read, so consumers can read only the new plugins.<name> style.
+func Test_LoadConfigFile_FoldsDeprecatedFieldsIntoPlugins(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "infracost.yml")
+	require.NoError(t, os.WriteFile(path, []byte(`version: "0.3"
+terraform:
+  source_map:
+    - match: foo
+      replace: bar
+projects:
+  - path: app
+    type: terraform
+    terraform:
+      workspace: prod
+      var_files:
+        - prod.tfvars
+      vars:
+        region: us-east-1
+      cloud:
+        org: my-org
+        workspace: app-prod
+        host: app.terraform.io
+  - path: stack
+    type: cloudformation
+    aws:
+      region: us-east-1
+      stack_name: my-stack
+`), 0600))
+
+	cfg, err := config.LoadConfigFile(path, dir, nil)
+	require.NoError(t, err)
+
+	app := findProject(cfg.Projects, "app")
+	require.NotNil(t, app)
+	tf := app.Plugins["terraform"]
+	require.NotNil(t, tf, "expected terraform.* to be folded into plugins.terraform")
+	assert.Equal(t, "prod", tf["workspace"])
+	assert.Equal(t, []string{"prod.tfvars"}, toStringSlice(tf["tfVarsFiles"]))
+	assert.Equal(t, map[string]any{"region": "us-east-1"}, tf["vars"])
+	assert.Equal(t, map[string]any{
+		"organization": "my-org",
+		"workspace":    "app-prod",
+		"hostname":     "app.terraform.io",
+	}, tf["terraformCloudConfiguration"])
+	// the repo-level source_map is folded into each terraform project's blob
+	assert.Equal(t, map[string]any{"foo": "bar"}, tf["regexSourceMap"])
+
+	stack := findProject(cfg.Projects, "stack")
+	require.NotNil(t, stack)
+	cfn := stack.Plugins["cloudformation"]
+	require.NotNil(t, cfn, "expected aws.* to be folded into plugins.cloudformation")
+	// unset aws fields are omitted, not written as empty strings.
+	assert.Equal(t, map[string]any{
+		"region":    "us-east-1",
+		"stackName": "my-stack",
+	}, cfn["awsContext"])
 }

@@ -262,17 +262,14 @@ func Generate(
 				EnvName:         project.Env,
 				DependencyPaths: project.DependencyPaths,
 				Metadata:        project.Metadata,
-				Terraform: ProjectTerraform{
-					VarFiles:  project.TerraformVarFiles,
-					Workspace: project.Env,
-				},
-				Type: ProjectType(project.Type),
+				Type:            ProjectType(project.Type),
 			}
 
-			// Emit the plugin-specific raw_options blob under plugins.<type>, keyed by the
-			// consuming plugin. Stored as a native YAML map so it stays readable and editable.
-			// The Terraform.* fields above are kept too, as backwards-compatible sugar for
-			// consumers that don't yet read the blob.
+			// Emit the plugin-specific parse options under plugins.<type>, keyed by the consuming
+			// plugin, stored as a native YAML map so it stays readable and editable. This is now
+			// the ONLY place generated config carries these options - the deprecated terraform.* /
+			// aws.* fields are no longer emitted. Consumers read plugins.<name> (and config folds
+			// any hand-authored deprecated fields into it on read - see config_plugins_compat.go).
 			if opts, err := decodePluginRawOptions(project.RawOptions); err != nil {
 				return nil, fmt.Errorf("%w: failed to decode raw options for project %q: %s", ErrInvalidConfigYAML, project.Path, err)
 			} else if len(opts) > 0 {

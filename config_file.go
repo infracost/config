@@ -128,6 +128,11 @@ func (c *Config) normalize() error {
 				project.Plugins[pluginName] = merged
 			}
 		}
+
+		// Fold the deprecated structured terraform.* / aws.* fields into the plugins blob so that
+		// consumers can read only the new plugins.<name> style. Structured values win over the
+		// blob (they were either there before or added by the user). See config_plugins_compat.go.
+		project.foldDeprecatedFieldsIntoPlugins(c.Terraform.SourceMap)
 	}
 
 	// first sort by path + env to ensure duplicate name resolution uses the same path for each iteration

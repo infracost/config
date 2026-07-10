@@ -231,8 +231,16 @@ func assertProjectMatches(t *testing.T, want, got *config.Project, prefix string
 	assert.Equal(t, want.Name, got.Name, "%s: expected project name %q, got %q", prefix, want.Name, got.Name)
 	assert.Equal(t, want.Path, got.Path, "%s: expected project path %q, got %q", prefix, want.Path, got.Path)
 	assert.Equal(t, want.EnvName, got.EnvName, "%s: expected project env name %q, got %q", prefix, want.EnvName, got.EnvName)
-	if len(want.Terraform.VarFiles) > 0 || len(got.Terraform.VarFiles) > 0 {
-		assert.EqualValues(t, want.Terraform.VarFiles, got.Terraform.VarFiles, "%s: expected project terraform var files %q, got %q", prefix, want.Terraform.VarFiles, got.Terraform.VarFiles)
+	// var files are no longer emitted under terraform.var_files; they live in the plugins blob.
+	// Test expectations still specify them under Terraform.VarFiles for readability, so compare
+	// that against the tfVarsFiles carried in plugins.<type> (an unset type defaults to terraform).
+	pluginKey := string(got.Type)
+	if pluginKey == "" {
+		pluginKey = "terraform"
+	}
+	gotVarFiles := toStringSlice(got.Plugins[pluginKey]["tfVarsFiles"])
+	if len(want.Terraform.VarFiles) > 0 || len(gotVarFiles) > 0 {
+		assert.EqualValues(t, want.Terraform.VarFiles, gotVarFiles, "%s: expected project var files %q, got %q", prefix, want.Terraform.VarFiles, gotVarFiles)
 	}
 	if len(want.DependencyPaths) > 0 || len(got.DependencyPaths) > 0 {
 		assert.EqualValues(t, want.DependencyPaths, got.DependencyPaths, "%s: expected project dependency paths %q, got %q", prefix, want.DependencyPaths, got.DependencyPaths)
