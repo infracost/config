@@ -49,12 +49,6 @@ func WithBaseBranch(name string) GenerationOption {
 	}
 }
 
-func WithEnvVars(vars map[string]string) GenerationOption {
-	return func(o *GenerationOptions) {
-		o.EnvVars = vars
-	}
-}
-
 func WithIsProjectProductionFunc(f func(project string) bool) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.IsProjectProduction = f
@@ -110,7 +104,6 @@ type GenerationOptions struct {
 	Branch                 string
 	BaseBranch             string
 	IsProjectProduction    func(name string) bool
-	EnvVars                map[string]string
 	PluginDir              string
 	DefaultPluginDir       bool
 	MaxSearchDepth         int
@@ -283,7 +276,7 @@ func Generate(
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
-	if _, err = parseConfigFile(raw, genOptions.EnvVars, output, rootDir); err != nil {
+	if _, err = parseConfigFile(raw, output, rootDir); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
