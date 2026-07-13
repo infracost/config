@@ -3,15 +3,14 @@ package config
 import (
 	"bytes"
 	"errors"
-	"slices"
-
-	// #nosec G505
-
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+
+	// #nosec G505
 
 	"github.com/infracost/config/cdk"
 	"github.com/infracost/config/internal/security"
@@ -30,7 +29,6 @@ type TerraformRegexSource struct {
 // paths are resolved against (the repo root); when it is non-empty, project
 // paths are confined to it using the symlink-aware security check.
 func (c *Config) validate(baseDir string) error {
-
 	v := c.Version
 	if v == "" {
 		return fmt.Errorf("config file version is required")
@@ -64,7 +62,6 @@ func (c *Config) validate(baseDir string) error {
 }
 
 func (c *Config) normalize() error {
-
 	if c == nil {
 		return nil
 	}
@@ -145,7 +142,6 @@ func (c *Config) normalize() error {
 	})
 
 	return nil
-
 }
 
 func fileExists(path string) bool {
@@ -158,9 +154,7 @@ func fileExists(path string) bool {
 
 func LoadConfigFile(
 	path, repoPath string,
-	envVars map[string]string,
 ) (*Config, error) {
-
 	if !fileExists(path) {
 		return nil, fmt.Errorf("config file does not exist at %s", path)
 	}
@@ -171,7 +165,7 @@ func LoadConfigFile(
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
-	cfg, err := parseConfigFile(content, envVars, nil, repoPath)
+	cfg, err := parseConfigFile(content, nil, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
@@ -183,26 +177,6 @@ func LoadConfigFile(
 	}
 
 	return cfg, nil
-}
-
-func (c *Config) replaceEnvVars(envVars map[string]string) error {
-	if c == nil || envVars == nil {
-		return nil
-	}
-	content, err := yaml.Marshal(c)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	content = []byte(os.Expand(string(content), func(key string) string {
-		if val, ok := envVars[key]; ok {
-			return val
-		}
-		return fmt.Sprintf("${%s}", key)
-	}))
-	if err := yaml.Unmarshal(content, c); err != nil {
-		return fmt.Errorf("failed to unmarshal config after env var replacement: %w", err)
-	}
-	return nil
 }
 
 func isYAMLEmpty(content string) bool {
@@ -225,8 +199,7 @@ func readConfigVersion(raw []byte) (string, error) {
 	return base.Version, nil
 }
 
-func parseConfigFile(content []byte, envVars map[string]string, target *Config, baseDir string) (*Config, error) {
-
+func parseConfigFile(content []byte, target *Config, baseDir string) (*Config, error) {
 	if target == nil {
 		target = defaultConfig()
 	}
@@ -250,11 +223,6 @@ func parseConfigFile(content []byte, envVars map[string]string, target *Config, 
 		default:
 			return nil, fmt.Errorf("%w: unsupported config file version: %s", ErrInvalidConfigYAML, version)
 		}
-
-		if err := target.replaceEnvVars(envVars); err != nil {
-			return nil, fmt.Errorf("%w: failed to replace env vars: %s", ErrInvalidConfigYAML, err)
-		}
-
 	}
 
 	if err := target.normalize(); err != nil {
@@ -269,7 +237,6 @@ func parseConfigFile(content []byte, envVars map[string]string, target *Config, 
 }
 
 func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) (*Config, error) {
-
 	if target == nil {
 		target = defaultConfig()
 	}
@@ -314,7 +281,6 @@ func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) 
 }
 
 func parseCurrentVersion(content []byte, config *Config) error {
-
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
 
@@ -351,7 +317,6 @@ func simplifyErrorLine(line string) string {
 }
 
 func parseLegacyVersion(content []byte, config *Config) error {
-
 	var intermediary ConfigWithLegacySupport
 	if len(config.Projects) > 0 {
 		// if the config came with projectsd set (e.g. default main) we need to set it here to see if it gets overridden by legacy projects

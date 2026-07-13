@@ -12,7 +12,6 @@ import (
 )
 
 func Test_ConfigVersionChecking(t *testing.T) {
-
 	tests := []struct {
 		name    string
 		content string
@@ -53,7 +52,7 @@ func Test_ConfigVersionChecking(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := parseConfigFile([]byte(tt.content), nil, nil, "")
+			cfg, err := parseConfigFile([]byte(tt.content), nil, "")
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
@@ -63,11 +62,9 @@ func Test_ConfigVersionChecking(t *testing.T) {
 			assert.Equal(t, CurrentVersion, cfg.Version)
 		})
 	}
-
 }
 
 func Test_ConfigProjectPathConfinement(t *testing.T) {
-
 	// baseDir is the repo root that project paths are confined to. An adjacent
 	// directory outside it, plus an in-repo symlink pointing at that outside
 	// directory, let us exercise both lexical (../) and symlink-based escapes.
@@ -118,7 +115,7 @@ func Test_ConfigProjectPathConfinement(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			content := fmt.Sprintf("version: 0.3\nprojects:\n  - path: %s", tt.path)
-			_, err := parseConfigFile([]byte(content), nil, nil, baseDir)
+			_, err := parseConfigFile([]byte(content), nil, baseDir)
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
 				return
@@ -129,7 +126,6 @@ func Test_ConfigProjectPathConfinement(t *testing.T) {
 }
 
 func Test_ErrorSimplification(t *testing.T) {
-
 	content := `
 version: 0.2
 projects:
@@ -138,10 +134,9 @@ projects:
   - unknown_field: baz
 `
 
-	_, err := parseConfigFile([]byte(content), nil, nil, "")
+	_, err := parseConfigFile([]byte(content), nil, "")
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "invalid config YAML: invalid config YAML: line 4: field unknown_field not found")
-
 }
 
 func TestLoad(t *testing.T) {
@@ -297,7 +292,7 @@ projects:
 				}()
 			}
 
-			c, err := LoadConfigFile(path, tmp, nil)
+			c, err := LoadConfigFile(path, tmp)
 			if tt.error != nil {
 				require.Error(t, tt.error, err)
 			} else {
@@ -311,10 +306,10 @@ projects:
 
 func TestGenerateFillsCDKBlockWhenFeatureFlagEnabled(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
   defaults:
@@ -331,10 +326,10 @@ cdk:
 
 func TestGenerateDetectsCDK(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp)
 	require.NoError(t, err)
@@ -343,10 +338,10 @@ func TestGenerateDetectsCDK(t *testing.T) {
 
 func TestGenerateAutodetectsEmptyCDKBlock(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
 cdk:
@@ -360,9 +355,9 @@ cdk:
 func TestMergeCDKEntriesWithAutodetect_ForgivingExamples(t *testing.T) {
 	// Set up a temp dir with foo/cdk.json and foo/package.json so cdk.GenerateConfig detects them
 	tmp := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	testCases := []struct {
 		name     string
@@ -478,12 +473,12 @@ func TestMergeCDKEntriesWithAutodetect_ForgivingExamples(t *testing.T) {
 func TestMergeCDKEntriesWithAutodetect_GlobalOverlaysApplyToDetectedEntries(t *testing.T) {
 	// Set up a temp dir with foo/cdk.json, foo/package.json, bar/cdk.json, bar/package.json
 	tmp := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "bar"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "bar", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "bar"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "bar", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	ctxMap := map[string]string{"foo": "bar"}
 	input := []*cdk.ConfigEntry{
@@ -509,9 +504,9 @@ func TestMergeCDKEntriesWithAutodetect_GlobalOverlaysApplyToDetectedEntries(t *t
 func TestMergeCDKEntriesWithAutodetect_GlobalOverlayDoesNotOverrideLocal(t *testing.T) {
 	// Set up a temp dir with foo/cdk.json and foo/package.json
 	tmp := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	ctxMap1 := map[string]string{"foo": "bar"}
 	ctxMap2 := map[string]string{"local": "value"}
@@ -543,10 +538,10 @@ projects:
     name: my-terraform
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(configPath, tmp, nil)
+	cfg, err := LoadConfigFile(configPath, tmp)
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -559,10 +554,10 @@ projects:
 // (without a cdk projects section) are applied to autodetected CDK entries
 func TestGenerate_CDKDefaults_WithTemplate_DefaultsOnly(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
@@ -579,10 +574,10 @@ cdk:
 // don't override explicitly set context/env values in CDK entries
 func TestGenerate_CDKDefaults_WithTemplate_PreservesLocalValues(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
@@ -606,10 +601,10 @@ cdk:
 // are applied to missing fields while preserving explicitly set ones
 func TestGenerate_CDKDefaults_WithTemplate_PartialOverride(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
 cdk_defaults:
@@ -633,10 +628,10 @@ cdk:
 // - Defaults should be applied to autodetected CDK entries
 func TestGenerate_CDKDefaults_WithTemplate_RepoConfigNoCDKBlock(t *testing.T) {
 	tmp := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "main.tf"), []byte(`variable "x" {}`), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
 	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
 cdk:
@@ -664,10 +659,10 @@ projects:
     name: existing-terraform
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0600)
+	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(configPath, tmp, nil)
+	cfg, err := LoadConfigFile(configPath, tmp)
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
