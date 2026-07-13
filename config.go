@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/sha1" // nolint:gosec
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -185,6 +186,16 @@ func (p *Project) ConfigSHA() string {
 	}
 	sort.Strings(orderEnv)
 	inputs = append(inputs, orderEnv...)
+
+	// Include the plugin blobs so the sha reflects options that now live only under plugins.<name>:
+	// generated configs no longer write the deprecated terraform.* fields, so without this the sha
+	// would miss var-file/workspace changes for them. json.Marshal sorts map keys, so this is
+	// deterministic.
+	if len(p.Plugins) > 0 {
+		if b, err := json.Marshal(p.Plugins); err == nil {
+			inputs = append(inputs, string(b))
+		}
+	}
 
 	// nolint:gosec
 	gen := sha1.New()

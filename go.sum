@@ -42,6 +42,8 @@ github.com/infracost/proto v1.153.1-0.20260701083223-7dd6cb640924 h1:uqcs0th6Apu
 github.com/infracost/proto v1.153.1-0.20260701083223-7dd6cb640924/go.mod h1:Z8vPWBWblwJlw+/ksO+BtsXwf9NiOcSTWx0WRWNbfUA=
 github.com/infracost/proto v1.154.0 h1:BgiNeV0wq17FjFk7DRPaxTgYryJzj6Zfr6nUT3oqZb4=
 github.com/infracost/proto v1.154.0/go.mod h1:Z8vPWBWblwJlw+/ksO+BtsXwf9NiOcSTWx0WRWNbfUA=
+github.com/infracost/proto v1.158.0 h1:vgJibZ9H3+Umz4OVHKqo06ZQokvPH3LUuWb6ZC0s068=
+github.com/infracost/proto v1.158.0/go.mod h1:Z8vPWBWblwJlw+/ksO+BtsXwf9NiOcSTWx0WRWNbfUA=
 github.com/jhump/protoreflect v1.17.0 h1:qOEr613fac2lOuTgWN4tPAtLL7fUSbuJL5X5XumQh94=
 github.com/jhump/protoreflect v1.17.0/go.mod h1:h9+vUUL38jiBzck8ck+6G/aeMX8Z4QUY/NiJPwPNi+8=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=

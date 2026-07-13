@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -248,18 +249,32 @@ func Generate(
 	if !hasProjectsSection {
 		output.Projects = make([]*Project, 0, len(projects))
 		for _, project := range projects {
-			output.Projects = append(output.Projects, &Project{
+			p := &Project{
 				Path:            project.Path,
 				Name:            project.Name,
 				EnvName:         project.Env,
 				DependencyPaths: project.DependencyPaths,
 				Metadata:        project.Metadata,
-				Terraform: ProjectTerraform{
-					VarFiles:  project.TerraformVarFiles,
-					Workspace: project.Env,
-				},
-				Type: ProjectType(project.Type),
-			})
+				Type:            ProjectType(project.Type),
+				// Workspace is a caller-sourced runtime option (passed to the plugin via
+				// GenericOptions.Workspace) and is also read outside the plugin, so it stays a top-level
+				// field rather than going into the plugins blob.
+				Terraform: ProjectTerraform{Workspace: project.Env},
+			}
+
+			// Persist the plugin's parse options under plugins.<name>, keyed by the consuming plugin,
+			// as a native YAML map so it stays readable and editable. This is now the ONLY place
+			// generated config carries these options - the deprecated terraform.* / aws.* fields are
+			// no longer emitted (they are folded into plugins.<name> on read for hand-written configs).
+			opts, err := generatedPluginOptions(project)
+			if err != nil {
+				return nil, fmt.Errorf("%w: failed to build plugin options for project %q: %s", ErrInvalidConfigYAML, project.Path, err)
+			}
+			if len(opts) > 0 {
+				p.Plugins = map[string]map[string]any{pluginKeyForType(p.Type): opts}
+			}
+
+			output.Projects = append(output.Projects, p)
 		}
 	}
 
@@ -281,4 +296,38 @@ func Generate(
 	}
 
 	return output, nil
+}
+
+// generatedPluginOptions returns the plugins.<name> blob to persist for an autodetected project, as
+// a native map ready to store under plugins.<name>.
+//
+// When a plugin authored a raw_options blob during identification (only when it returned
+// environments authoritatively) that blob is persisted verbatim. Otherwise - when the plugin
+// returned no environments, was unimplemented, or no plugin was used - config sideloads the var
+// files it attributed locally into a terraform-family blob. Those var files depend on the
+// whole-directory (sibling/pibling) attribution config performs in its tree passes, which the
+// plugins cannot yet reproduce, so config still owns them; this sideload is the one deliberate,
+// minimal special case and is expected to go away once IdentifyAllProjects moves that attribution
+// plugin-side. Non-terraform-family projects get no generated blob - their options (e.g. aws
+// context) are user-authored and folded in on read.
+func generatedPluginOptions(project autodetect.Project) (map[string]any, error) {
+	if len(project.RawOptions) > 0 {
+		var opts map[string]any
+		if err := json.Unmarshal(project.RawOptions, &opts); err != nil {
+			return nil, err
+		}
+		return opts, nil
+	}
+
+	if !isTerraformFamily(ProjectType(project.Type)) {
+		return nil, nil
+	}
+
+	opts := map[string]any{}
+	if len(project.TerraformVarFiles) > 0 {
+		opts["var_files"] = project.TerraformVarFiles
+	}
+	// Workspace is not part of the blob - it is written to the top-level terraform.workspace field
+	// (see Generate) and passed to the plugin via GenericOptions.Workspace.
+	return opts, nil
 }

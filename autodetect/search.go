@@ -384,6 +384,11 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 					DependencyPaths:   escapeStringListForYAML(envDeps),
 					Env:               escapeStringForYAML(env.Name),
 					Type:              projectType,
+					// the plugin authored this environment's parse-options blob (var files, workspace,
+					// etc.); carry it through so generation persists it verbatim under plugins.<name>.
+					// Only this authoritative-with-environments branch has a plugin blob - the others
+					// sideload config's locally-derived var files at generation time instead.
+					RawOptions: env.RawOptions,
 				})
 
 				// record the directories this environment claims so they aren't also emitted as
