@@ -64,6 +64,9 @@ type ConfigWithAutodetect struct {
 }
 
 type Terraform struct {
+	// Deprecated: set the regex source map per-project under plugins.terraform.regexSourceMap instead.
+	// Still read for backwards compatibility (folded into each terraform project's plugins blob on
+	// load); no longer written by config generation.
 	SourceMap []TerraformRegexSource `yaml:"source_map,omitempty"`
 	Defaults  TerraformDefaults      `yaml:"defaults,omitempty"`
 }
@@ -75,10 +78,18 @@ type TerraformDefaults struct {
 }
 
 type TerraformCloud struct {
-	Host      string `yaml:"host,omitempty"`
-	Org       string `yaml:"org,omitempty"`
+	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.hostname instead. Still read
+	// for backwards compatibility (folded into the plugins blob on load); no longer written by generation.
+	Host string `yaml:"host,omitempty"`
+	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.organization instead. Folded
+	// into the plugins blob on load; no longer written by generation.
+	Org string `yaml:"org,omitempty"`
+	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.workspace instead. Folded
+	// into the plugins blob on load; no longer written by generation.
 	Workspace string `yaml:"workspace,omitempty"`
-	Token     string `yaml:"token,omitempty"`
+	// Token is a credential: it is NOT persisted in the plugins blob and is still supplied here or via
+	// INFRACOST_TERRAFORM_CLOUD_TOKEN.
+	Token string `yaml:"token,omitempty"`
 }
 
 type Spacelift struct {
@@ -111,9 +122,15 @@ type ProjectWithLegacySupport struct {
 type ProjectTerraform struct {
 	Cloud     TerraformCloud `yaml:"cloud,omitempty"`
 	Spacelift Spacelift      `yaml:"spacelift,omitempty"`
-	Vars      map[string]any `yaml:"vars,omitempty"`
-	VarFiles  []string       `yaml:"var_files,omitempty"`
-	Workspace string         `yaml:"workspace,omitempty"`
+	// Deprecated: set terraform variables under plugins.terraform.vars instead. Still read for
+	// backwards compatibility (folded into the plugins blob on load); no longer written by generation.
+	Vars map[string]any `yaml:"vars,omitempty"`
+	// Deprecated: set var files under plugins.terraform.tfVarsFiles instead. Still read for backwards
+	// compatibility (folded into the plugins blob on load); no longer written by generation.
+	VarFiles []string `yaml:"var_files,omitempty"`
+	// Deprecated: set the workspace under plugins.terraform.workspace instead. Still read for backwards
+	// compatibility (folded into the plugins blob on load); no longer written by generation.
+	Workspace string `yaml:"workspace,omitempty"`
 }
 
 // Project defines a specific terraform project config. This can be used
@@ -188,9 +205,17 @@ func (p *Project) ConfigSHA() string {
 }
 
 type ProjectAWSConfig struct {
-	Region    string `yaml:"region,omitempty"`
-	StackID   string `yaml:"stack_id,omitempty"`
+	// Deprecated: set under plugins.cloudformation.awsContext.region instead. Still read for backwards
+	// compatibility (folded into the plugins blob on load); no longer written by generation.
+	Region string `yaml:"region,omitempty"`
+	// Deprecated: set under plugins.cloudformation.awsContext.stackId instead. Folded into the plugins
+	// blob on load; no longer written by generation.
+	StackID string `yaml:"stack_id,omitempty"`
+	// Deprecated: set under plugins.cloudformation.awsContext.stackName instead. Folded into the
+	// plugins blob on load; no longer written by generation.
 	StackName string `yaml:"stack_name,omitempty"`
+	// Deprecated: set under plugins.cloudformation.awsContext.accountId instead. Folded into the
+	// plugins blob on load; no longer written by generation.
 	AccountID string `yaml:"account_id,omitempty"`
 }
 
