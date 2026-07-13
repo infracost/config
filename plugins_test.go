@@ -118,24 +118,28 @@ projects:
 	assert.Equal(t, map[string]any{"FOO": "bar"}, b.Plugins["terraform"]["env"])
 }
 
-// Precedence is deprecated field > per-project blob > repo-level default.
+// Precedence is deprecated field > per-project blob > repo-level default. (workspace is no longer a
+// folded field, so this uses var files, which still fold from the deprecated terraform.var_files.)
 func TestPlugins_PrecedenceDeprecatedOverBlobOverDefault(t *testing.T) {
 	cfg := loadConfigString(t, `version: 0.3
 plugins:
   terraform:
-    workspace: from-default
+    tfVarsFiles:
+      - from-default.tfvars
 projects:
   - path: a
     type: terraform
     terraform:
-      workspace: from-deprecated
+      var_files:
+        - from-deprecated.tfvars
     plugins:
       terraform:
-        workspace: from-blob
+        tfVarsFiles:
+          - from-blob.tfvars
 `)
 
 	a := projectByPath(t, cfg, "a")
-	assert.Equal(t, "from-deprecated", a.Plugins["terraform"]["workspace"])
+	assert.Equal(t, []string{"from-deprecated.tfvars"}, toStringSlice(a.Plugins["terraform"]["tfVarsFiles"]))
 }
 
 // With no deprecated field set, the per-project blob wins over the repo-level default.
@@ -143,15 +147,17 @@ func TestPlugins_PrecedenceBlobOverDefault(t *testing.T) {
 	cfg := loadConfigString(t, `version: 0.3
 plugins:
   terraform:
-    workspace: from-default
+    tfVarsFiles:
+      - from-default.tfvars
 projects:
   - path: a
     type: terraform
     plugins:
       terraform:
-        workspace: from-blob
+        tfVarsFiles:
+          - from-blob.tfvars
 `)
 
 	a := projectByPath(t, cfg, "a")
-	assert.Equal(t, "from-blob", a.Plugins["terraform"]["workspace"])
+	assert.Equal(t, []string{"from-blob.tfvars"}, toStringSlice(a.Plugins["terraform"]["tfVarsFiles"]))
 }

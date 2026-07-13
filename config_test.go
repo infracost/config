@@ -181,12 +181,9 @@ projects:
 						},
 					},
 					UsageFile: "usage/file",
-					// terraform.* is folded into the plugins blob on read. workspace folds; the cloud
-					// config needs a workspace (unset here) and the token is a credential, so neither
-					// is folded.
-					Plugins: map[string]map[string]any{
-						"terraform": {"workspace": "development"},
-					},
+					// workspace stays on the top-level terraform.workspace field (not folded into the
+					// plugins blob); cloud config needs a workspace (unset here) and the token is a
+					// credential, so nothing folds - Plugins stays nil.
 				},
 			},
 		},
@@ -220,12 +217,9 @@ projects:
 						},
 					},
 					UsageFile: "usage/file",
-					// terraform.* is folded into the plugins blob on read. workspace folds; the cloud
-					// config needs a workspace (unset here) and the token is a credential, so neither
-					// is folded.
-					Plugins: map[string]map[string]any{
-						"terraform": {"workspace": "development"},
-					},
+					// workspace stays on the top-level terraform.workspace field (not folded into the
+					// plugins blob); cloud config needs a workspace (unset here) and the token is a
+					// credential, so nothing folds - Plugins stays nil.
 				},
 			},
 		},

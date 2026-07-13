@@ -263,6 +263,10 @@ func Generate(
 				DependencyPaths: project.DependencyPaths,
 				Metadata:        project.Metadata,
 				Type:            ProjectType(project.Type),
+				// Workspace is a caller-sourced runtime option (passed to the plugin via
+				// GenericOptions.Workspace) and is also read outside the plugin, so it stays a top-level
+				// field rather than going into the plugins blob.
+				Terraform: ProjectTerraform{Workspace: project.Env},
 			}
 
 			// Persist the plugin's parse options under plugins.<name>, keyed by the consuming plugin,
@@ -331,8 +335,7 @@ func generatedPluginOptions(project autodetect.Project) (map[string]any, error) 
 	if len(project.TerraformVarFiles) > 0 {
 		opts["tfVarsFiles"] = project.TerraformVarFiles
 	}
-	if project.Env != "" {
-		opts["workspace"] = project.Env
-	}
+	// Workspace is not part of the blob - it is written to the top-level terraform.workspace field
+	// (see Generate) and passed to the plugin via GenericOptions.Workspace.
 	return opts, nil
 }

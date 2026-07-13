@@ -128,8 +128,10 @@ type ProjectTerraform struct {
 	// Deprecated: set var files under plugins.terraform.tfVarsFiles instead. Still read for backwards
 	// compatibility (folded into the plugins blob on load); no longer written by generation.
 	VarFiles []string `yaml:"var_files,omitempty"`
-	// Deprecated: set the workspace under plugins.terraform.workspace instead. Still read for backwards
-	// compatibility (folded into the plugins blob on load); no longer written by generation.
+	// Workspace is the terraform workspace to select. It is NOT part of the plugins blob: it is a
+	// caller-sourced runtime option passed to the plugin via GenericOptions.Workspace, and is also read
+	// outside the plugin (the project's workspace in the cost output / provider input). It stays a
+	// top-level field and is still written by generation.
 	Workspace string `yaml:"workspace,omitempty"`
 }
 

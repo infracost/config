@@ -40,10 +40,10 @@ func (p *Project) foldDeprecatedFieldsIntoPlugins(repoSourceMap []TerraformRegex
 	}
 }
 
-// hasTerraformFields reports whether any deprecated per-project terraform.* field is set.
+// hasTerraformFields reports whether any deprecated per-project terraform.* field that folds into the
+// blob is set. Workspace is excluded: it is not folded (it stays a top-level, caller-sourced field).
 func (p *Project) hasTerraformFields() bool {
 	return len(p.Terraform.VarFiles) > 0 ||
-		p.Terraform.Workspace != "" ||
 		len(p.Terraform.Vars) > 0 ||
 		p.Terraform.Cloud.Org != "" ||
 		p.Terraform.Cloud.Workspace != "" ||
@@ -54,9 +54,9 @@ func (p *Project) foldTerraformIntoPlugins(key string, repoSourceMap []Terraform
 	if len(p.Terraform.VarFiles) > 0 {
 		p.setPluginOption(key, "tfVarsFiles", p.Terraform.VarFiles)
 	}
-	if p.Terraform.Workspace != "" {
-		p.setPluginOption(key, "workspace", p.Terraform.Workspace)
-	}
+	// Workspace is deliberately NOT folded into the blob: it is a caller-sourced runtime option passed
+	// via GenericOptions.Workspace (and read outside the plugin), so it stays on the top-level
+	// terraform.workspace field.
 	if len(p.Terraform.Vars) > 0 {
 		p.setPluginOption(key, "vars", p.Terraform.Vars)
 	}
