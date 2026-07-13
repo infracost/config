@@ -77,19 +77,16 @@ type TerraformDefaults struct {
 	Workspace string         `yaml:"workspace,omitempty"`
 }
 
+// TerraformCloud is the authoring surface for Terraform Cloud / Enterprise. It is NOT deprecated and
+// NOT folded into the plugins blob: Host/Org/Workspace are caller-sourced and read outside the plugin
+// (the caller passes them to the plugin via GenericOptions.TerraformCloudConfiguration, and reads the
+// host to build the terraform-cloud credential set). The token is a credential supplied here or via
+// INFRACOST_TERRAFORM_CLOUD_TOKEN and travels via GenericOptions.CredentialSets.
 type TerraformCloud struct {
-	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.hostname instead. Still read
-	// for backwards compatibility (folded into the plugins blob on load); no longer written by generation.
-	Host string `yaml:"host,omitempty"`
-	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.organization instead. Folded
-	// into the plugins blob on load; no longer written by generation.
-	Org string `yaml:"org,omitempty"`
-	// Deprecated: set under plugins.terraform.terraformCloudConfiguration.workspace instead. Folded
-	// into the plugins blob on load; no longer written by generation.
+	Host      string `yaml:"host,omitempty"`
+	Org       string `yaml:"org,omitempty"`
 	Workspace string `yaml:"workspace,omitempty"`
-	// Token is a credential: it is NOT persisted in the plugins blob and is still supplied here or via
-	// INFRACOST_TERRAFORM_CLOUD_TOKEN.
-	Token string `yaml:"token,omitempty"`
+	Token     string `yaml:"token,omitempty"`
 }
 
 type Spacelift struct {

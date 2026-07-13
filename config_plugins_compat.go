@@ -41,13 +41,10 @@ func (p *Project) foldDeprecatedFieldsIntoPlugins(repoSourceMap []TerraformRegex
 }
 
 // hasTerraformFields reports whether any deprecated per-project terraform.* field that folds into the
-// blob is set. Workspace is excluded: it is not folded (it stays a top-level, caller-sourced field).
+// blob is set. Workspace and cloud are excluded: they are not folded (they stay top-level,
+// caller-sourced fields passed to the plugin via GenericOptions).
 func (p *Project) hasTerraformFields() bool {
-	return len(p.Terraform.VarFiles) > 0 ||
-		len(p.Terraform.Vars) > 0 ||
-		p.Terraform.Cloud.Org != "" ||
-		p.Terraform.Cloud.Workspace != "" ||
-		p.Terraform.Cloud.Host != ""
+	return len(p.Terraform.VarFiles) > 0 || len(p.Terraform.Vars) > 0
 }
 
 func (p *Project) foldTerraformIntoPlugins(key string, repoSourceMap []TerraformRegexSource) {
@@ -60,15 +57,9 @@ func (p *Project) foldTerraformIntoPlugins(key string, repoSourceMap []Terraform
 	if len(p.Terraform.Vars) > 0 {
 		p.setPluginOption(key, "vars", p.Terraform.Vars)
 	}
-	// Match the callers' gate: a Terraform Cloud configuration is only meaningful with a workspace.
-	// token is a credential and is passed via GenericOptions, never persisted here.
-	if p.Terraform.Cloud.Workspace != "" {
-		p.setPluginOption(key, "terraformCloudConfiguration", map[string]any{
-			"organization": p.Terraform.Cloud.Org,
-			"workspace":    p.Terraform.Cloud.Workspace,
-			"hostname":     p.Terraform.Cloud.Host,
-		})
-	}
+	// terraform.cloud.* is deliberately NOT folded into the blob: it is caller-sourced and read
+	// outside the plugin, so the caller passes it via GenericOptions.TerraformCloudConfiguration (and
+	// reads the host for the credential set). See config.go TerraformCloud.
 	if len(repoSourceMap) > 0 {
 		sm := make(map[string]any, len(repoSourceMap))
 		for _, s := range repoSourceMap {
