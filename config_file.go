@@ -111,6 +111,28 @@ func (c *Config) normalize() error {
 		if project.Terraform.Spacelift.APIKey.Secret == "" && c.Terraform.Defaults.Spacelift.APIKey.Secret != "" {
 			project.Terraform.Spacelift.APIKey.Secret = c.Terraform.Defaults.Spacelift.APIKey.Secret
 		}
+
+		// Merge repo-level plugin defaults (c.Plugins) under the per-project blob, so the per-project
+		// value wins over the global default. Schema-agnostic deep merge - config never interprets the
+		// blob. See mergePluginBlobs in config_plugins.go.
+		for name, defaults := range c.Plugins {
+			if len(defaults) == 0 {
+				continue
+			}
+			merged := mergePluginBlobs(defaults, project.Plugins[name])
+			if len(merged) > 0 {
+				if project.Plugins == nil {
+					project.Plugins = make(map[string]map[string]any, len(c.Plugins))
+				}
+				project.Plugins[name] = merged
+			}
+		}
+
+		// Fold the deprecated structured terraform.* / aws.* fields over the plugins blob so consumers
+		// can read only the new plugins.<name> style. A hand-written deprecated field wins over the
+		// blob (generation no longer emits them). Running this after the merge above gives the overall
+		// precedence deprecated > per-project blob > repo-level default. See config_plugins_compat.go.
+		project.foldDeprecatedFieldsIntoPlugins(c.Terraform.SourceMap)
 	}
 
 	// first sort by path + env to ensure duplicate name resolution uses the same path for each iteration

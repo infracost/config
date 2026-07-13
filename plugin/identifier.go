@@ -47,6 +47,10 @@ type Environment struct {
 	Path            string
 	Files           []string
 	DependencyPaths []string
+	// RawOptions is the plugin-authored, opaque parse-options blob (always JSON) for this
+	// environment. The caller persists it under plugins.<name> in the config file and forwards it
+	// verbatim into Parse; it is never interpreted here.
+	RawOptions []byte
 }
 
 // AttributedVarFile is the plugin-agnostic view of a var file the caller has already attributed
@@ -172,6 +176,7 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 				Path:            e.Path,
 				Files:           e.Files,
 				DependencyPaths: e.DependencyPaths,
+				RawOptions:      e.RawOptions,
 			})
 		}
 		return environments, true, nil

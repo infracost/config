@@ -181,6 +181,12 @@ projects:
 						},
 					},
 					UsageFile: "usage/file",
+					// terraform.* is folded into the plugins blob on read. workspace folds; the cloud
+					// config needs a workspace (unset here) and the token is a credential, so neither
+					// is folded.
+					Plugins: map[string]map[string]any{
+						"terraform": {"workspace": "development"},
+					},
 				},
 			},
 		},
@@ -214,6 +220,12 @@ projects:
 						},
 					},
 					UsageFile: "usage/file",
+					// terraform.* is folded into the plugins blob on read. workspace folds; the cloud
+					// config needs a workspace (unset here) and the token is a credential, so neither
+					// is folded.
+					Plugins: map[string]map[string]any{
+						"terraform": {"workspace": "development"},
+					},
 				},
 			},
 		},
@@ -274,6 +286,15 @@ projects:
 				{
 					Name: "main",
 					Path: "path/to/my_terraform",
+					// the repo-level terraform.source_map folds into each terraform project's blob as
+					// regexSourceMap on read.
+					Plugins: map[string]map[string]any{
+						"terraform": {
+							"regexSourceMap": map[string]any{
+								"^ANOTHER_MODULE$": "github.com/CentricaDevOps/networks-aws-modules//modules/another?ref=another_v1.0.0",
+							},
+						},
+					},
 				},
 			},
 		},
