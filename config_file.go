@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -109,6 +108,10 @@ func (c *Config) normalize() error {
 			project.Terraform.Spacelift.APIKey.Secret = c.Terraform.Defaults.Spacelift.APIKey.Secret
 		}
 	}
+
+	// fold repo-level plugin defaults (incl. the terraform.source_map compat shim) into each project's
+	// blob, per-project winning.
+	c.foldRepoPluginDefaults()
 
 	// first sort by path + env to ensure duplicate name resolution uses the same path for each iteration
 	sort.Slice(c.Projects, func(i, j int) bool {
@@ -254,15 +257,11 @@ func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) 
 				return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 			}
 		case version == CurrentVersion:
-			config := ConfigWithAutodetect{
-				Config: target,
-			}
-
-			decoder := yaml.NewDecoder(bytes.NewReader(content))
-			decoder.KnownFields(true)
-
-			if err := decoder.Decode(&config); err != nil {
-				return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
+			// Config.UnmarshalYAML routes through the configfile layer, which also captures the
+			// autodetect: node (ignored here; the autodetect config is parsed separately from the raw
+			// bytes), so no dedicated wrapper is needed to tolerate it.
+			if err := parseCurrentVersion(content, target); err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("%w: unsupported config file version: %s", ErrInvalidConfigYAML, version)
@@ -281,10 +280,9 @@ func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) 
 }
 
 func parseCurrentVersion(content []byte, config *Config) error {
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	decoder.KnownFields(true)
-
-	if err := decoder.Decode(&config); err != nil {
+	// yaml.Unmarshal invokes Config.UnmarshalYAML, which decodes via the configfile layer and applies
+	// the typed/blob split. config keeps any defaults it was seeded with for keys the file omits.
+	if err := yaml.Unmarshal(content, config); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidConfigYAML, simplifyYAMLError(err))
 	}
 
@@ -314,99 +312,6 @@ func simplifyErrorLine(line string) string {
 	line = strings.TrimSpace(line)
 	simple, _, _ := strings.Cut(line, " in type")
 	return simple
-}
-
-func parseLegacyVersion(content []byte, config *Config) error {
-	var intermediary ConfigWithLegacySupport
-	if len(config.Projects) > 0 {
-		// if the config came with projectsd set (e.g. default main) we need to set it here to see if it gets overridden by legacy projects
-		intermediary.Projects = make([]*ProjectWithLegacySupport, 0, len(config.Projects))
-		for _, project := range config.Projects {
-			intermediary.Projects = append(intermediary.Projects, &ProjectWithLegacySupport{
-				Project: *project,
-			})
-		}
-	}
-
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	decoder.KnownFields(true)
-
-	if err := decoder.Decode(&intermediary); err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidConfigYAML, simplifyYAMLError(err))
-	}
-
-	// copy across fields that exist in both
-	config.ConfigBase = intermediary.ConfigBase
-	config.Version = CurrentVersion // force version to latest after converting
-	config.Currency = intermediary.Currency
-	config.UsageFilePath = intermediary.UsageFilePath
-	config.CDK.Projects = intermediary.CDK
-	config.CDK.Defaults = intermediary.CDKDefaults
-
-	// copy legacy fields to their new locations
-	config.Terraform.SourceMap = intermediary.TerraformRegexSourceMap
-	config.Terraform.Defaults.Cloud.Host = intermediary.TerraformCloudHost
-	config.Terraform.Defaults.Cloud.Org = intermediary.TerraformCloudOrg
-	config.Terraform.Defaults.Cloud.Workspace = intermediary.TerraformCloudWorkspace
-	config.Terraform.Defaults.Cloud.Token = intermediary.TerraformCloudToken
-	config.Terraform.Defaults.Spacelift.APIKey.Endpoint = intermediary.SpaceliftAPIKeyEndpoint
-	config.Terraform.Defaults.Spacelift.APIKey.ID = intermediary.SpaceliftAPIKeyID
-	config.Terraform.Defaults.Spacelift.APIKey.Secret = intermediary.SpaceliftAPIKeySecret
-	config.Terraform.Defaults.Workspace = intermediary.TerraformWorkspace
-
-	// remove default projects and take whatever the decode gace us - if the user didn't specify the projects key, we'll get the defaults preserved anyway
-	config.Projects = nil
-
-	// convert legacy projects to new ones
-	// this is deliberately a nil check rather than checking length, as we want to preserve an empty projects section if it was explicitly set to empty in the legacy config
-	if len(intermediary.Projects) > 0 {
-		config.Projects = make([]*Project, 0, len(intermediary.Projects))
-
-		for _, legacyProject := range intermediary.Projects {
-			project := legacyProject.Project
-			if len(legacyProject.TerraformVars) > 0 {
-				if project.Terraform.Vars == nil {
-					project.Terraform.Vars = make(map[string]any)
-				}
-				for k, v := range legacyProject.TerraformVars {
-					project.Terraform.Vars[k] = v
-				}
-			}
-			if legacyProject.TerraformWorkspace != "" {
-				project.Terraform.Workspace = legacyProject.TerraformWorkspace
-			}
-			if legacyProject.TerraformCloudHost != "" {
-				project.Terraform.Cloud.Host = legacyProject.TerraformCloudHost
-			}
-			if legacyProject.TerraformCloudOrg != "" {
-				project.Terraform.Cloud.Org = legacyProject.TerraformCloudOrg
-			}
-			if legacyProject.TerraformCloudWorkspace != "" {
-				project.Terraform.Cloud.Workspace = legacyProject.TerraformCloudWorkspace
-			}
-			if legacyProject.TerraformCloudToken != "" {
-				project.Terraform.Cloud.Token = legacyProject.TerraformCloudToken
-			}
-			if legacyProject.SpaceliftAPIKeyEndpoint != "" {
-				project.Terraform.Spacelift.APIKey.Endpoint = legacyProject.SpaceliftAPIKeyEndpoint
-			}
-			if legacyProject.SpaceliftAPIKeyID != "" {
-				project.Terraform.Spacelift.APIKey.ID = legacyProject.SpaceliftAPIKeyID
-			}
-			if legacyProject.SpaceliftAPIKeySecret != "" {
-				project.Terraform.Spacelift.APIKey.Secret = legacyProject.SpaceliftAPIKeySecret
-			}
-			if len(legacyProject.TerraformVarFiles) > 0 {
-				project.Terraform.VarFiles = legacyProject.TerraformVarFiles
-			}
-			if legacyProject.ProjectType != "" {
-				project.Type = legacyProject.ProjectType
-			}
-			config.Projects = append(config.Projects, &project)
-		}
-	}
-
-	return nil
 }
 
 func finalizeCDKConfig(repoPath string, cfg *Config, ignorePermissionErrors, ignoreHiddenDirs bool) error {

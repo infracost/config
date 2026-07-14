@@ -269,6 +269,15 @@ projects:
 				{
 					Name: "main",
 					Path: "path/to/my_terraform",
+					// the repo-level terraform source map is folded into the project's plugin blob as
+					// regex_source_map (a map), which is what the plugin reads.
+					Plugins: map[string]map[string]any{
+						"terraform": {
+							"regex_source_map": map[string]any{
+								"^ANOTHER_MODULE$": "github.com/CentricaDevOps/networks-aws-modules//modules/another?ref=another_v1.0.0",
+							},
+						},
+					},
 				},
 			},
 		},

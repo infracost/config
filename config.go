@@ -10,38 +10,12 @@ import (
 
 	"github.com/infracost/config/cdk"
 	"github.com/infracost/config/types"
-	"gopkg.in/yaml.v3"
 )
 
 const CurrentVersion = "0.3"
 
-var legacyVersions = []string{
-	"0.1", // The 0.1 version of the config file was used in the original CLI.
-	"0.2", // The 0.2 version of the config file was used in the original version of the Infracost Cloud Platform.
-}
-
 type ConfigBase struct {
 	Version string `yaml:"version"`
-}
-
-// this handles the parameters that were supported in 0.1 and 0.2 but are not supported in 0.3. This allows us to parse legacy config files.
-type ConfigWithLegacySupport struct {
-	ConfigBase              `yaml:",inline"`
-	Currency                string                      `yaml:"currency,omitempty"`
-	UsageFilePath           string                      `yaml:"usage_file,omitempty"`
-	TerraformRegexSourceMap []TerraformRegexSource      `yaml:"terraform_source_map,omitempty"`
-	TerraformCloudHost      string                      `yaml:"terraform_cloud_host,omitempty"`
-	TerraformCloudOrg       string                      `yaml:"terraform_cloud_org,omitempty"`
-	TerraformCloudWorkspace string                      `yaml:"terraform_cloud_workspace,omitempty"`
-	TerraformCloudToken     string                      `yaml:"terraform_cloud_token,omitempty"`
-	SpaceliftAPIKeyEndpoint string                      `yaml:"spacelift_api_key_endpoint,omitempty"`
-	SpaceliftAPIKeyID       string                      `yaml:"spacelift_api_key_id,omitempty"`
-	SpaceliftAPIKeySecret   string                      `yaml:"spacelift_api_key_secret,omitempty"`
-	TerraformWorkspace      string                      `yaml:"terraform_workspace,omitempty"`
-	Projects                []*ProjectWithLegacySupport `yaml:"projects"`
-	Autodetect              yaml.Node                   `yaml:"autodetect,omitempty"`
-	CDK                     []*cdk.ConfigEntry          `yaml:"cdk,omitempty"`
-	CDKDefaults             cdk.Defaults                `yaml:"cdk_defaults,omitempty"`
 }
 
 type Config struct {
@@ -52,15 +26,10 @@ type Config struct {
 	Projects      []*Project `yaml:"projects"`
 	CDK           cdk.Config `yaml:"cdk,omitempty"`
 	// Plugins holds repo-level, plugin-specific defaults keyed by the consuming plugin name (e.g.
-	// "terraform"). They are deep-merged into each project's matching Plugins entry during
-	// normalization, with the per-project values winning. Opaque to config - the plugin that matches
-	// the key owns the schema.
-	Plugins map[string]map[string]any `yaml:"plugins,omitempty"`
-}
-
-type ConfigWithAutodetect struct {
-	*Config    `yaml:",inline"`
-	Autodetect yaml.Node `yaml:"autodetect,omitempty"`
+	// "terraform"). Opaque to config - the plugin that matches the key owns the schema. It is NOT
+	// serialized directly (yaml:"-"): (Un)MarshalYAML route through the configfile layer so each blob
+	// lives under its own heading rather than a `plugins:` block.
+	Plugins map[string]map[string]any `yaml:"-"`
 }
 
 type Terraform struct {
@@ -99,31 +68,16 @@ type SpaceliftAPIKey struct {
 	Secret   string `yaml:"secret,omitempty"`
 }
 
-type ProjectWithLegacySupport struct {
-	Project                 `yaml:",inline"`
-	TerraformVars           map[string]any `yaml:"terraform_vars,omitempty"`
-	TerraformWorkspace      string         `yaml:"terraform_workspace,omitempty"`
-	TerraformCloudHost      string         `yaml:"terraform_cloud_host,omitempty"`
-	TerraformCloudOrg       string         `yaml:"terraform_cloud_org,omitempty"`
-	TerraformCloudWorkspace string         `yaml:"terraform_cloud_workspace,omitempty"`
-	TerraformCloudToken     string         `yaml:"terraform_cloud_token,omitempty"`
-	SpaceliftAPIKeyEndpoint string         `yaml:"spacelift_api_key_endpoint,omitempty"`
-	SpaceliftAPIKeyID       string         `yaml:"spacelift_api_key_id,omitempty"`
-	SpaceliftAPIKeySecret   string         `yaml:"spacelift_api_key_secret,omitempty"`
-	TerraformVarFiles       []string       `yaml:"terraform_var_files,omitempty"`
-	ProjectType             ProjectType    `yaml:"project_type,omitempty"`      // terraform, terragrunt
-	SkipAutodetect          bool           `yaml:"skip_autodetect,omitempty"`   // deprecated, ignored
-	IncludeAllPaths         bool           `yaml:"include_all_paths,omitempty"` // deprecated, ignored
-}
-
 type ProjectTerraform struct {
 	Cloud     TerraformCloud `yaml:"cloud,omitempty"`
 	Spacelift Spacelift      `yaml:"spacelift,omitempty"`
-	// Deprecated: set terraform variables under plugins.terraform.vars instead. Still read for
-	// backwards compatibility (folded into the plugins blob on load); no longer written by generation.
+	// Deprecated: read the vars from the plugins blob (Project.Plugins["terraform"]["vars"]) instead.
+	// Populated on load as a backwards-compat mirror of that blob (the canonical source, and the only
+	// representation serialized); not read by config itself.
 	Vars map[string]any `yaml:"vars,omitempty"`
-	// Deprecated: set var files under plugins.terraform.var_files instead. Still read for backwards
-	// compatibility (folded into the plugins blob on load); no longer written by generation.
+	// Deprecated: read the var files from the plugins blob (Project.Plugins["terraform"]["var_files"])
+	// instead. Populated on load as a backwards-compat mirror of that blob (the canonical source, and
+	// the only representation serialized); not read by config itself.
 	VarFiles []string `yaml:"var_files,omitempty"`
 	// Workspace is the terraform workspace to select. It is NOT part of the plugins blob: it is a
 	// caller-sourced runtime option passed to the plugin via GenericOptions.Workspace, and is also read
@@ -151,8 +105,10 @@ type Project struct {
 	CDKSynthError   string            `yaml:"cdk_synth_error,omitempty"`
 	// Plugins holds plugin-specific parse options keyed by the consuming plugin name (e.g.
 	// "terraform"). It is the persisted raw_options blob - autogenerated during identification and
-	// user-editable. Opaque to config; the plugin that matches the key owns the schema.
-	Plugins map[string]map[string]any `yaml:"plugins,omitempty"`
+	// user-editable. Opaque to config; the plugin that matches the key owns the schema. NOT serialized
+	// directly (yaml:"-"): the configfile layer splits/merges it under the project's headings
+	// (terraform:, aws:, ...) rather than a `plugins:` block.
+	Plugins map[string]map[string]any `yaml:"-"`
 }
 
 // ConfigSHA computes a deterministic SHA for the project config based on its
@@ -164,13 +120,8 @@ func (p *Project) ConfigSHA() string {
 	inputs = append(inputs, p.Path)
 	inputs = append(inputs, p.ExcludePaths...)
 	inputs = append(inputs, p.DependencyPaths...)
-	orderVars := make([]string, 0, len(p.Terraform.Vars))
-	for k, v := range p.Terraform.Vars {
-		orderVars = append(orderVars, fmt.Sprintf("%s=%s", k, v))
-	}
-	sort.Strings(orderVars)
-	inputs = append(inputs, orderVars...)
-	inputs = append(inputs, p.Terraform.VarFiles...)
+	// Terraform.Vars/VarFiles are backwards-compat mirrors of the Plugins blob (hashed below), so
+	// they are deliberately NOT hashed here - that would double-count them.
 	inputs = append(inputs, p.Terraform.Workspace)
 	inputs = append(inputs, p.Terraform.Cloud.Host)
 	inputs = append(inputs, p.Terraform.Cloud.Org)
@@ -203,18 +154,14 @@ func (p *Project) ConfigSHA() string {
 	return hex.EncodeToString(gen.Sum(nil))
 }
 
+// ProjectAWSConfig is the deprecated typed view of the cloudformation aws context. The canonical
+// representation is the plugins blob Project.Plugins["cloudformation"] (flat snake_case keys: region,
+// account_id, stack_id, stack_name). These fields are populated on load as a backwards-compat mirror
+// of that blob; prefer reading the blob. Config itself does not read them.
 type ProjectAWSConfig struct {
-	// Deprecated: set under plugins.cloudformation.awsContext.region instead. Still read for backwards
-	// compatibility (folded into the plugins blob on load); no longer written by generation.
-	Region string `yaml:"region,omitempty"`
-	// Deprecated: set under plugins.cloudformation.awsContext.stackId instead. Folded into the plugins
-	// blob on load; no longer written by generation.
-	StackID string `yaml:"stack_id,omitempty"`
-	// Deprecated: set under plugins.cloudformation.awsContext.stackName instead. Folded into the
-	// plugins blob on load; no longer written by generation.
+	Region    string `yaml:"region,omitempty"`
+	StackID   string `yaml:"stack_id,omitempty"`
 	StackName string `yaml:"stack_name,omitempty"`
-	// Deprecated: set under plugins.cloudformation.awsContext.accountId instead. Folded into the
-	// plugins blob on load; no longer written by generation.
 	AccountID string `yaml:"account_id,omitempty"`
 }
 

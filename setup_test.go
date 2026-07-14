@@ -246,13 +246,16 @@ func assertProjectMatches(t *testing.T, want, got *config.Project, prefix string
 	assert.Equal(t, want.Type, got.Type, "%s: expected project type %q, got %q", prefix, want.Type, got.Type)
 }
 
-// effectiveVarFiles returns a project's terraform var files from whichever representation is set:
-// the new plugins.<type>.var_files blob (populated by generation and by the compat fold) or, as a
-// fallback, the deprecated terraform.var_files field the older tests author their expectations with.
+// effectiveVarFiles returns a project's terraform var files from whichever representation is set: the
+// new Plugins blob (keyed by the exact project type, or "terraform" for an untyped project - mirroring
+// how the CLI/runner look it up via finalProjectType) or, as a fallback, the deprecated
+// terraform.var_files field the older tests author their expectations with.
 func effectiveVarFiles(p *config.Project) []string {
-	if blob, ok := p.Plugins[string(p.Type)]; ok {
-		if v, ok := blob["var_files"]; ok {
-			return toStringSlice(v)
+	for _, key := range []string{string(p.Type), "terraform"} {
+		if blob, ok := p.Plugins[key]; ok {
+			if v, ok := blob["var_files"]; ok {
+				return toStringSlice(v)
+			}
 		}
 	}
 	return p.Terraform.VarFiles
