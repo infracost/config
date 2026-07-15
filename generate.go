@@ -271,7 +271,7 @@ func Generate(
 				return nil, fmt.Errorf("%w: failed to build plugin options for project %q: %s", ErrInvalidConfigYAML, project.Path, err)
 			}
 			if len(opts) > 0 {
-				p.Plugins = map[string]map[string]any{pluginKeyForType(p.Type): opts}
+				p.Plugins = map[string]map[string]any{PluginKeyForType(p.Type): opts}
 			}
 
 			output.Projects = append(output.Projects, p)
@@ -319,7 +319,7 @@ func generatedPluginOptions(project autodetect.Project) (map[string]any, error) 
 		return opts, nil
 	}
 
-	if !isTerraformFamily(ProjectType(project.Type)) {
+	if !IsTerraformFamily(ProjectType(project.Type)) {
 		return nil, nil
 	}
 

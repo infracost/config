@@ -4,13 +4,13 @@ package config
 // map from a project type to the plugin that consumes its options. It does not understand a plugin's
 // option schema - that stays opaque to config.
 
-// pluginKeyForType returns the config-file plugins.<name> key for a project type: the name of the
+// PluginKeyForType returns the config-file plugins.<name> key for a project type: the name of the
 // plugin that consumes that project's parse options. It is the identity for every type except the
 // CDK variants, which are parsed by the cloudformation plugin and so share its options blob.
 //
 // Keying by consuming plugin (rather than project type) is what lets generation and the deprecated
 // fold agree on where a project's blob lives - the two only diverge for CDK.
-func pluginKeyForType(t ProjectType) string {
+func PluginKeyForType(t ProjectType) string {
 	switch t {
 	case ProjectTypeCDKTypeScript, ProjectTypeCDKJavaScript, ProjectTypeCDKPython:
 		return string(ProjectTypeCloudFormation)
@@ -19,10 +19,10 @@ func pluginKeyForType(t ProjectType) string {
 	}
 }
 
-// isTerraformFamily reports whether a project type is parsed with the terraform options schema
+// IsTerraformFamily reports whether a project type is parsed with the terraform options schema
 // (terraform, terragrunt and cisco stacks all share it), and so folds/sideloads into a
 // terraform-shaped blob.
-func isTerraformFamily(t ProjectType) bool {
+func IsTerraformFamily(t ProjectType) bool {
 	switch t {
 	case ProjectTypeTerraform, ProjectTypeTerragrunt, ProjectTypeCiscoStacks:
 		return true
@@ -52,7 +52,7 @@ func blobKeyForHeading(heading string, t ProjectType) string {
 // terraformBlobKey returns the Plugins key for a terraform-family project's blob: the exact type for
 // terraform/terragrunt/cisco, and terraform for an untyped project carrying terraform options.
 func terraformBlobKey(t ProjectType) string {
-	if isTerraformFamily(t) {
+	if IsTerraformFamily(t) {
 		return string(t)
 	}
 	return string(ProjectTypeTerraform)
@@ -141,7 +141,7 @@ func (c *Config) foldSourceMapInto(project *Project) {
 	if len(c.Terraform.SourceMap) == 0 {
 		return
 	}
-	if !isTerraformFamily(project.Type) && project.Type != ProjectTypeUnknown {
+	if !IsTerraformFamily(project.Type) && project.Type != ProjectTypeUnknown {
 		return
 	}
 	key := terraformBlobKey(project.Type)
@@ -162,7 +162,7 @@ func (c *Config) foldSourceMapInto(project *Project) {
 func repoDefaultAppliesTo(repoKey string, t ProjectType) (string, bool) {
 	switch repoKey {
 	case string(ProjectTypeTerraform):
-		if isTerraformFamily(t) || t == ProjectTypeUnknown {
+		if IsTerraformFamily(t) || t == ProjectTypeUnknown {
 			return terraformBlobKey(t), true
 		}
 	case string(ProjectTypeCloudFormation):
