@@ -231,11 +231,51 @@ func assertProjectMatches(t *testing.T, want, got *config.Project, prefix string
 	assert.Equal(t, want.Name, got.Name, "%s: expected project name %q, got %q", prefix, want.Name, got.Name)
 	assert.Equal(t, want.Path, got.Path, "%s: expected project path %q, got %q", prefix, want.Path, got.Path)
 	assert.Equal(t, want.EnvName, got.EnvName, "%s: expected project env name %q, got %q", prefix, want.EnvName, got.EnvName)
-	if len(want.Terraform.VarFiles) > 0 || len(got.Terraform.VarFiles) > 0 {
-		assert.EqualValues(t, want.Terraform.VarFiles, got.Terraform.VarFiles, "%s: expected project terraform var files %q, got %q", prefix, want.Terraform.VarFiles, got.Terraform.VarFiles)
+	// Generated config now carries terraform var files under plugins.<type>.var_files rather than
+	// the deprecated top-level terraform.var_files field. These tests express the expectation with the
+	// old field for readability, so compare the effective var files from whichever representation each
+	// side uses.
+	wantVarFiles := effectiveVarFiles(want)
+	gotVarFiles := effectiveVarFiles(got)
+	if len(wantVarFiles) > 0 || len(gotVarFiles) > 0 {
+		assert.EqualValues(t, wantVarFiles, gotVarFiles, "%s: expected project terraform var files %q, got %q", prefix, wantVarFiles, gotVarFiles)
 	}
 	if len(want.DependencyPaths) > 0 || len(got.DependencyPaths) > 0 {
 		assert.EqualValues(t, want.DependencyPaths, got.DependencyPaths, "%s: expected project dependency paths %q, got %q", prefix, want.DependencyPaths, got.DependencyPaths)
 	}
 	assert.Equal(t, want.Type, got.Type, "%s: expected project type %q, got %q", prefix, want.Type, got.Type)
+}
+
+// effectiveVarFiles returns a project's terraform var files from whichever representation is set: the
+// new Plugins blob (keyed by the exact project type, or "terraform" for an untyped project - mirroring
+// how the CLI/runner look it up via finalProjectType) or, as a fallback, the deprecated
+// terraform.var_files field the older tests author their expectations with.
+func effectiveVarFiles(p *config.Project) []string {
+	for _, key := range []string{string(p.Type), "terraform"} {
+		if blob, ok := p.Plugins[key]; ok {
+			if v, ok := blob["var_files"]; ok {
+				return toStringSlice(v)
+			}
+		}
+	}
+	return p.Terraform.VarFiles
+}
+
+// toStringSlice coerces a decoded YAML/JSON value into a []string. Blobs that have been through a
+// YAML round-trip hold []any of strings; ones built in-process may hold []string directly.
+func toStringSlice(v any) []string {
+	switch t := v.(type) {
+	case []string:
+		return t
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, e := range t {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
