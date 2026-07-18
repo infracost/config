@@ -2,11 +2,14 @@ package cdk
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/infracost/config/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -98,9 +101,9 @@ var (
 )
 
 // GenerateConfig finds all CDK configurations in the repository
-func GenerateConfig(repoPath string) ([]*ConfigEntry, error) {
+func GenerateConfig(repoPath string, ignorePermissionErrors, ignoreHiddenDirs bool) ([]*ConfigEntry, error) {
 
-	cdkConfigFiles, err := findCDKConfigFiles(repoPath)
+	cdkConfigFiles, err := findCDKConfigFiles(repoPath, ignorePermissionErrors, ignoreHiddenDirs)
 	if err != nil {
 		return nil, err
 	}
@@ -166,25 +169,28 @@ func findManifestPathsForCDKConfigFile(repoPath, cdkConfigFile, filePattern stri
 }
 
 func getAppFromCDKConfigFile(repoPath string, cdkConfigFile string) (string, error) {
+	// displayPath stays relative to repoPath so errors never leak the absolute
+	// filesystem path (e.g. a runner's working directory).
+	displayPath := cdkConfigFile
 	cdkConfigFile = filepath.Join(repoPath, cdkConfigFile)
 
 	// #nosec G304
 	cdkConfig, err := os.ReadFile(cdkConfigFile)
 	if err != nil {
-		return "", fmt.Errorf("failed to read cdk.json file at %q: %w", cdkConfigFile, err)
+		return "", fmt.Errorf("failed to read cdk.json file at %q: %s", displayPath, security.SafeErr(err))
 	}
 	cdkConfigMap := make(map[string]any)
 	err = json.Unmarshal(cdkConfig, &cdkConfigMap)
 	if err != nil {
-		return "", fmt.Errorf("failed to deserialize cdk.json file at %q: %w", cdkConfigFile, err)
+		return "", fmt.Errorf("failed to deserialize cdk.json file at %q: %w", displayPath, err)
 	}
 	app := cdkConfigMap["app"]
 	if app == nil {
-		return "", fmt.Errorf("%s does not contain an `app` field", cdkConfigFile)
+		return "", fmt.Errorf("%s does not contain an `app` field", displayPath)
 	}
 	appStr, ok := app.(string)
 	if !ok {
-		return "", fmt.Errorf("%s: app field is not a string", cdkConfigFile)
+		return "", fmt.Errorf("%s: app field is not a string", displayPath)
 	}
 	return appStr, nil
 }
@@ -228,13 +234,22 @@ func DetermineCDKLanguage(repoPath string, cdkConfigFile string) (Language, erro
 	}
 }
 
-func findCDKConfigFiles(repoPath string) ([]string, error) {
+func findCDKConfigFiles(repoPath string, ignorePermissionErrors, ignoreHiddenDirs bool) ([]string, error) {
 	var cdkConfigFiles []string
 	err := filepath.WalkDir(repoPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			if ignorePermissionErrors && errors.Is(err, fs.ErrPermission) {
+				if d != nil && d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 			return err
 		}
 		if d.IsDir() && d.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		if ignoreHiddenDirs && d.IsDir() && path != repoPath && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		}
 		if !d.IsDir() && d.Name() == "cdk.json" {

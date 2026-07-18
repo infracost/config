@@ -1,13 +1,20 @@
 package autodetect
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
+	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
 	"github.com/infracost/config/types"
 )
@@ -16,24 +23,115 @@ import (
 // each recursive call only needs to pass through state that actually changes
 // per frame (path, depth, parent).
 type treeBuilder struct {
-	identifier  *plugin.Identifier
-	repoRoot    string
-	config      *Config
-	allowedDirs []string
+	identifier             *plugin.Identifier
+	repoRoot               string
+	config                 *Config
+	allowedDirs            []string
+	ignorePermissionErrors bool
+	ignoreHiddenDirs       bool
+	singleFileMode         bool
+
+	// tfTasks accumulates terraform files discovered during the (single-threaded)
+	// walk. They are parsed in parallel after the walk completes, since HCL
+	// parsing dominates autodetect time on large repos.
+	tfTasks []tfParseTask
 }
 
-func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, allowedDirs ...string) *treeBuilder {
+// tfParseTask is a terraform file whose HCL parse is deferred to the parallel
+// phase. The owning node already has Terraform.HasFiles set during the walk;
+// only the parse-derived flags are filled in later.
+type tfParseTask struct {
+	node   *Node
+	path   string
+	isJSON bool
+}
+
+// Block keywords that the terraform sniff looks for. A file containing none of
+// these as a byte substring cannot contribute a provider/backend/module block,
+// so its HCL parse can be skipped (an over-approximation: it may parse a few
+// extra files, but never skips one that matters).
+var (
+	kwProvider = []byte("provider")
+	kwBackend  = []byte("backend")
+	kwModule   = []byte("module")
+)
+
+func newTreeBuilder(identifier *plugin.Identifier, repoRoot string, config *Config, ignorePermissionErrors, ignoreHiddenDirs, singleFileMode bool, allowedDirs ...string) *treeBuilder {
 	return &treeBuilder{
-		identifier:  identifier,
-		repoRoot:    repoRoot,
-		config:      config,
-		allowedDirs: allowedDirs,
+		identifier:             identifier,
+		repoRoot:               repoRoot,
+		config:                 config,
+		allowedDirs:            allowedDirs,
+		ignorePermissionErrors: ignorePermissionErrors,
+		ignoreHiddenDirs:       ignoreHiddenDirs,
+		singleFileMode:         singleFileMode,
 	}
 }
 
-// build walks the tree starting at the builder's repoRoot.
+// build walks the tree starting at the builder's repoRoot, then parses the
+// discovered terraform files in parallel.
 func (b *treeBuilder) build(ctx context.Context) (*Node, error) {
-	return b.buildSubtree(ctx, b.repoRoot, 0, nil)
+	root, err := b.buildSubtree(ctx, b.repoRoot, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := b.parseTerraformTasks(ctx); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+// parseTerraformTasks parses all terraform files collected during the walk
+// using a worker pool, then folds the sniff results back onto their nodes
+// single-threaded (so node mutation stays race-free). It returns ctx.Err() if
+// the context was canceled, so a partial tree is never returned as success.
+func (b *treeBuilder) parseTerraformTasks(ctx context.Context) error {
+	if len(b.tfTasks) == 0 {
+		return nil
+	}
+	defer func() { b.tfTasks = nil }()
+
+	results := make([]terraformSniff, len(b.tfTasks))
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(b.tfTasks) {
+		workers = len(b.tfTasks)
+	}
+
+	var next int64 = -1
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(atomic.AddInt64(&next, 1))
+				if i >= len(b.tfTasks) {
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				results[i] = sniffTerraformFile(b.tfTasks[i].path, b.tfTasks[i].isJSON)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for i, task := range b.tfTasks {
+		sniff := results[i]
+		task.node.Terraform.HasBackend = task.node.Terraform.HasBackend || sniff.hasTerraformBackendBlock
+		task.node.Terraform.HasProvider = task.node.Terraform.HasProvider || sniff.hasProviderBlock
+		task.node.Terraform.LocalModuleSources = append(task.node.Terraform.LocalModuleSources, sniff.localModuleSources...)
+	}
+	return nil
 }
 
 func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, parent *Node) (*Node, error) {
@@ -41,12 +139,16 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		return nil, err
 	}
 
-	path, err := recursivelyResolveSymlink(path)
+	resolvedPath, err := security.RecursivelyResolveSymlink(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve symlink: %w", err)
+		if !b.ignorePermissionErrors || !errors.Is(err, fs.ErrPermission) {
+			return nil, fmt.Errorf("failed to resolve symlink %q: %s", security.SafePath(b.repoRoot, path), security.SafeErr(err))
+		}
+	} else {
+		path = resolvedPath
 	}
-	if !isPathAllowed(path, b.allowedDirs...) {
-		return nil, fmt.Errorf("path %q is not allowed", path)
+	if !security.IsPathAllowed(path, b.allowedDirs...) {
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(b.repoRoot, path))
 	}
 
 	node := &Node{
@@ -58,12 +160,15 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		if b.ignorePermissionErrors && errors.Is(err, fs.ErrPermission) {
+			return node, nil
+		}
+		return nil, fmt.Errorf("failed to read directory %q: %s", security.SafePath(b.repoRoot, path), security.SafeErr(err))
 	}
 
 	idResult := b.identifyDirectory(ctx, path)
 	if idResult != nil {
-		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown {
+		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown && !b.singleFileMode {
 
 			for _, dep := range idResult.DependencyPaths {
 				// dep is relative to "path", but we need it relative to the repo root
@@ -86,11 +191,11 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		} else {
 			for fileName, fileType := range idResult.FileTypes {
 
-				resolved, err := recursivelyResolveSymlink(filepath.Join(path, fileName))
+				resolved, err := security.RecursivelyResolveSymlink(filepath.Join(path, fileName))
 				if err != nil {
 					continue
 				}
-				if !isPathAllowed(resolved, b.allowedDirs...) {
+				if !security.IsPathAllowed(resolved, b.allowedDirs...) {
 					continue
 				}
 				node.Children = append(node.Children, &Node{
@@ -120,11 +225,11 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			isSymlink = true
 
 			// resolve symlink
-			resolved, err := recursivelyResolveSymlink(fullPath)
+			resolved, err := security.RecursivelyResolveSymlink(fullPath)
 			if err != nil {
 				continue
 			}
-			if !isPathAllowed(resolved, b.allowedDirs...) {
+			if !security.IsPathAllowed(resolved, b.allowedDirs...) {
 				continue
 			}
 			info, err = os.Stat(resolved)
@@ -140,7 +245,13 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 			if isSymlink {
 				continue
 			}
+			if b.singleFileMode {
+				continue
+			}
 			if slices.Contains(defaultExcludedDirs, info.Name()) {
+				continue
+			}
+			if b.ignoreHiddenDirs && strings.HasPrefix(info.Name(), ".") {
 				continue
 			}
 			if depth+1 < b.config.MaxSearchDepth {
@@ -149,6 +260,10 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 					node.Children = append(node.Children, childNode)
 				}
 			}
+			continue
+		}
+
+		if b.singleFileMode {
 			continue
 		}
 
@@ -163,9 +278,11 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		case isTGContext && isTerragruntFile(name):
 			b.handleTerragruntFile(node, fullPath)
 		case isTFContext && isTerraformFile(name):
-			handleTerraformFile(node, fullPath)
+			node.Terraform.HasFiles = true
+			b.tfTasks = append(b.tfTasks, tfParseTask{node: node, path: fullPath, isJSON: false})
 		case isTFContext && isTerraformJSONFile(name):
-			handleTerraformJSONFile(node, fullPath)
+			node.Terraform.HasFiles = true
+			b.tfTasks = append(b.tfTasks, tfParseTask{node: node, path: fullPath, isJSON: true})
 		case isTFContext && isTerraformVarFile(fullPath, b.config, b.allowedDirs):
 			addTFVarFile(node, name, fullPath, b.config)
 		}
@@ -199,38 +316,32 @@ func (b *treeBuilder) handleTerragruntFile(node *Node, fullPath string) {
 	node.Terragrunt.IncludedOutsideTerragruntFiles = append(node.Terragrunt.IncludedOutsideTerragruntFiles, sniff.Includes...)
 }
 
-func handleTerraformFile(node *Node, fullPath string) {
-	node.Terraform.HasFiles = true
+// sniffTerraformFile reads and sniffs a single terraform (or terraform JSON)
+// file. Safe to call concurrently: it only reads the file and returns a value.
+func sniffTerraformFile(fullPath string, isJSON bool) terraformSniff {
 	// #nosec G304
 	src, err := os.ReadFile(fullPath)
 	if err != nil {
-		return
+		return terraformSniff{}
 	}
-	f, err := parseHCLFile(src, fullPath)
-	if err != nil {
-		return
-	}
-	sniff := sniffTerraform(fullPath, f)
-	node.Terraform.HasBackend = node.Terraform.HasBackend || sniff.hasTerraformBackendBlock
-	node.Terraform.HasProvider = node.Terraform.HasProvider || sniff.hasProviderBlock
-	node.Terraform.LocalModuleSources = append(node.Terraform.LocalModuleSources, sniff.localModuleSources...)
-}
 
-func handleTerraformJSONFile(node *Node, fullPath string) {
-	// #nosec G304
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return
+	// Skip the (expensive) parse for files that cannot contain a
+	// provider/backend/module block. Never a false skip: the sniff only ever
+	// reports those blocks, whose keywords must appear as substrings, including
+	// in .tf.json where they are the object keys.
+	if !bytes.Contains(src, kwProvider) && !bytes.Contains(src, kwBackend) && !bytes.Contains(src, kwModule) {
+		return terraformSniff{}
 	}
-	f, err := parseHCLJSONFile(data, fullPath)
-	node.Terraform.HasFiles = true
-	if err != nil {
-		return
+
+	parse := parseHCLFile
+	if isJSON {
+		parse = parseHCLJSONFile
 	}
-	sniff := sniffTerraform(fullPath, f)
-	node.Terraform.HasBackend = node.Terraform.HasBackend || sniff.hasTerraformBackendBlock
-	node.Terraform.HasProvider = node.Terraform.HasProvider || sniff.hasProviderBlock
-	node.Terraform.LocalModuleSources = append(node.Terraform.LocalModuleSources, sniff.localModuleSources...)
+	f, err := parse(src, fullPath)
+	if err != nil {
+		return terraformSniff{}
+	}
+	return sniffTerraform(fullPath, f)
 }
 
 func addTFVarFile(node *Node, name, fullPath string, config *Config) {

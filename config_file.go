@@ -1,19 +1,18 @@
 package config
 
 import (
-	"bytes"
 	"errors"
-	"slices"
-
-	// #nosec G505
-
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
+	// #nosec G505
+
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/internal/security"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,8 +24,10 @@ type TerraformRegexSource struct {
 	Replace string `yaml:"replace"`
 }
 
-func (c *Config) validate() error {
-
+// validate checks the config is well-formed. baseDir is the directory project
+// paths are resolved against (the repo root); when it is non-empty, project
+// paths are confined to it using the symlink-aware security check.
+func (c *Config) validate(baseDir string) error {
 	v := c.Version
 	if v == "" {
 		return fmt.Errorf("config file version is required")
@@ -43,13 +44,23 @@ func (c *Config) validate() error {
 			}
 			return fmt.Errorf("project with name %q has no path", project.Name)
 		}
+
+		if filepath.IsAbs(project.Path) {
+			return fmt.Errorf("project path %q must be relative, not an absolute directory", project.Path)
+		}
+
+		// Project paths are resolved relative to the config file's directory, so
+		// a path that escapes it (e.g. "../foo" or an in-repo symlink pointing
+		// outside) points outside the allowed root.
+		if baseDir != "" && !security.IsPathAllowed(filepath.Join(baseDir, project.Path), baseDir) {
+			return fmt.Errorf("project path %q is outside the allowed directory", project.Path)
+		}
 	}
 
 	return nil
 }
 
 func (c *Config) normalize() error {
-
 	if c == nil {
 		return nil
 	}
@@ -98,6 +109,10 @@ func (c *Config) normalize() error {
 		}
 	}
 
+	// fold repo-level plugin defaults (incl. the terraform.source_map compat shim) into each project's
+	// blob, per-project winning.
+	c.foldRepoPluginDefaults()
+
 	// first sort by path + env to ensure duplicate name resolution uses the same path for each iteration
 	sort.Slice(c.Projects, func(i, j int) bool {
 		if c.Projects[i].Path == c.Projects[j].Path {
@@ -130,7 +145,6 @@ func (c *Config) normalize() error {
 	})
 
 	return nil
-
 }
 
 func fileExists(path string) bool {
@@ -143,9 +157,7 @@ func fileExists(path string) bool {
 
 func LoadConfigFile(
 	path, repoPath string,
-	envVars map[string]string,
 ) (*Config, error) {
-
 	if !fileExists(path) {
 		return nil, fmt.Errorf("config file does not exist at %s", path)
 	}
@@ -156,38 +168,18 @@ func LoadConfigFile(
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
-	cfg, err := parseConfigFile(content, envVars, nil)
+	cfg, err := parseConfigFile(content, nil, repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {
-		if err := finalizeCDKConfig(repoPath, cfg); err != nil {
+		if err := finalizeCDKConfig(repoPath, cfg, false, false); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 		}
 	}
 
 	return cfg, nil
-}
-
-func (c *Config) replaceEnvVars(envVars map[string]string) error {
-	if c == nil || envVars == nil {
-		return nil
-	}
-	content, err := yaml.Marshal(c)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	content = []byte(os.Expand(string(content), func(key string) string {
-		if val, ok := envVars[key]; ok {
-			return val
-		}
-		return fmt.Sprintf("${%s}", key)
-	}))
-	if err := yaml.Unmarshal(content, c); err != nil {
-		return fmt.Errorf("failed to unmarshal config after env var replacement: %w", err)
-	}
-	return nil
 }
 
 func isYAMLEmpty(content string) bool {
@@ -210,8 +202,7 @@ func readConfigVersion(raw []byte) (string, error) {
 	return base.Version, nil
 }
 
-func parseConfigFile(content []byte, envVars map[string]string, target *Config) (*Config, error) {
-
+func parseConfigFile(content []byte, target *Config, baseDir string) (*Config, error) {
 	if target == nil {
 		target = defaultConfig()
 	}
@@ -235,26 +226,20 @@ func parseConfigFile(content []byte, envVars map[string]string, target *Config) 
 		default:
 			return nil, fmt.Errorf("%w: unsupported config file version: %s", ErrInvalidConfigYAML, version)
 		}
-
-		if err := target.replaceEnvVars(envVars); err != nil {
-			return nil, fmt.Errorf("%w: failed to replace env vars: %s", ErrInvalidConfigYAML, err)
-		}
-
 	}
 
 	if err := target.normalize(); err != nil {
 		return nil, err
 	}
 
-	if err := target.validate(); err != nil {
+	if err := target.validate(baseDir); err != nil {
 		return nil, err
 	}
 
 	return target, nil
 }
 
-func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error) {
-
+func parseWithAutodetectAllowed(content []byte, target *Config, baseDir string) (*Config, error) {
 	if target == nil {
 		target = defaultConfig()
 	}
@@ -272,15 +257,11 @@ func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error)
 				return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 			}
 		case version == CurrentVersion:
-			config := ConfigWithAutodetect{
-				Config: target,
-			}
-
-			decoder := yaml.NewDecoder(bytes.NewReader(content))
-			decoder.KnownFields(true)
-
-			if err := decoder.Decode(&config); err != nil {
-				return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
+			// Config.UnmarshalYAML routes through the configfile layer, which also captures the
+			// autodetect: node (ignored here; the autodetect config is parsed separately from the raw
+			// bytes), so no dedicated wrapper is needed to tolerate it.
+			if err := parseCurrentVersion(content, target); err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("%w: unsupported config file version: %s", ErrInvalidConfigYAML, version)
@@ -291,7 +272,7 @@ func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error)
 		return nil, err
 	}
 
-	if err := target.validate(); err != nil {
+	if err := target.validate(baseDir); err != nil {
 		return nil, err
 	}
 
@@ -299,11 +280,9 @@ func parseWithAutodetectAllowed(content []byte, target *Config) (*Config, error)
 }
 
 func parseCurrentVersion(content []byte, config *Config) error {
-
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	decoder.KnownFields(true)
-
-	if err := decoder.Decode(&config); err != nil {
+	// yaml.Unmarshal invokes Config.UnmarshalYAML, which decodes via the configfile layer and applies
+	// the typed/blob split. config keeps any defaults it was seeded with for keys the file omits.
+	if err := yaml.Unmarshal(content, config); err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidConfigYAML, simplifyYAMLError(err))
 	}
 
@@ -335,107 +314,13 @@ func simplifyErrorLine(line string) string {
 	return simple
 }
 
-func parseLegacyVersion(content []byte, config *Config) error {
-
-	var intermediary ConfigWithLegacySupport
-	if len(config.Projects) > 0 {
-		// if the config came with projectsd set (e.g. default main) we need to set it here to see if it gets overridden by legacy projects
-		intermediary.Projects = make([]*ProjectWithLegacySupport, 0, len(config.Projects))
-		for _, project := range config.Projects {
-			intermediary.Projects = append(intermediary.Projects, &ProjectWithLegacySupport{
-				Project: *project,
-			})
-		}
-	}
-
-	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	decoder.KnownFields(true)
-
-	if err := decoder.Decode(&intermediary); err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidConfigYAML, simplifyYAMLError(err))
-	}
-
-	// copy across fields that exist in both
-	config.ConfigBase = intermediary.ConfigBase
-	config.Version = CurrentVersion // force version to latest after converting
-	config.Currency = intermediary.Currency
-	config.UsageFilePath = intermediary.UsageFilePath
-	config.CDK.Projects = intermediary.CDK
-	config.CDK.Defaults = intermediary.CDKDefaults
-
-	// copy legacy fields to their new locations
-	config.Terraform.SourceMap = intermediary.TerraformRegexSourceMap
-	config.Terraform.Defaults.Cloud.Host = intermediary.TerraformCloudHost
-	config.Terraform.Defaults.Cloud.Org = intermediary.TerraformCloudOrg
-	config.Terraform.Defaults.Cloud.Workspace = intermediary.TerraformCloudWorkspace
-	config.Terraform.Defaults.Cloud.Token = intermediary.TerraformCloudToken
-	config.Terraform.Defaults.Spacelift.APIKey.Endpoint = intermediary.SpaceliftAPIKeyEndpoint
-	config.Terraform.Defaults.Spacelift.APIKey.ID = intermediary.SpaceliftAPIKeyID
-	config.Terraform.Defaults.Spacelift.APIKey.Secret = intermediary.SpaceliftAPIKeySecret
-	config.Terraform.Defaults.Workspace = intermediary.TerraformWorkspace
-
-	// remove default projects and take whatever the decode gace us - if the user didn't specify the projects key, we'll get the defaults preserved anyway
-	config.Projects = nil
-
-	// convert legacy projects to new ones
-	// this is deliberately a nil check rather than checking length, as we want to preserve an empty projects section if it was explicitly set to empty in the legacy config
-	if len(intermediary.Projects) > 0 {
-		config.Projects = make([]*Project, 0, len(intermediary.Projects))
-
-		for _, legacyProject := range intermediary.Projects {
-			project := legacyProject.Project
-			if len(legacyProject.TerraformVars) > 0 {
-				if project.Terraform.Vars == nil {
-					project.Terraform.Vars = make(map[string]any)
-				}
-				for k, v := range legacyProject.TerraformVars {
-					project.Terraform.Vars[k] = v
-				}
-			}
-			if legacyProject.TerraformWorkspace != "" {
-				project.Terraform.Workspace = legacyProject.TerraformWorkspace
-			}
-			if legacyProject.TerraformCloudHost != "" {
-				project.Terraform.Cloud.Host = legacyProject.TerraformCloudHost
-			}
-			if legacyProject.TerraformCloudOrg != "" {
-				project.Terraform.Cloud.Org = legacyProject.TerraformCloudOrg
-			}
-			if legacyProject.TerraformCloudWorkspace != "" {
-				project.Terraform.Cloud.Workspace = legacyProject.TerraformCloudWorkspace
-			}
-			if legacyProject.TerraformCloudToken != "" {
-				project.Terraform.Cloud.Token = legacyProject.TerraformCloudToken
-			}
-			if legacyProject.SpaceliftAPIKeyEndpoint != "" {
-				project.Terraform.Spacelift.APIKey.Endpoint = legacyProject.SpaceliftAPIKeyEndpoint
-			}
-			if legacyProject.SpaceliftAPIKeyID != "" {
-				project.Terraform.Spacelift.APIKey.ID = legacyProject.SpaceliftAPIKeyID
-			}
-			if legacyProject.SpaceliftAPIKeySecret != "" {
-				project.Terraform.Spacelift.APIKey.Secret = legacyProject.SpaceliftAPIKeySecret
-			}
-			if len(legacyProject.TerraformVarFiles) > 0 {
-				project.Terraform.VarFiles = legacyProject.TerraformVarFiles
-			}
-			if legacyProject.ProjectType != "" {
-				project.Type = legacyProject.ProjectType
-			}
-			config.Projects = append(config.Projects, &project)
-		}
-	}
-
-	return nil
-}
-
-func finalizeCDKConfig(repoPath string, cfg *Config) error {
+func finalizeCDKConfig(repoPath string, cfg *Config, ignorePermissionErrors, ignoreHiddenDirs bool) error {
 	// If no CDK entries and no defaults, nothing to do
 	if len(cfg.CDK.Projects) == 0 && len(cfg.CDK.Defaults.Context) == 0 && len(cfg.CDK.Defaults.Env) == 0 {
 		return nil
 	}
 
-	mergedEntries, err := mergeCDKEntriesWithAutodetect(repoPath, cfg.CDK.Projects, cfg.CDK.Defaults)
+	mergedEntries, err := mergeCDKEntriesWithAutodetect(repoPath, cfg.CDK.Projects, cfg.CDK.Defaults, ignorePermissionErrors, ignoreHiddenDirs)
 	if err != nil {
 		return err
 	}
@@ -443,10 +328,10 @@ func finalizeCDKConfig(repoPath string, cfg *Config) error {
 	return nil
 }
 
-func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, defaults cdk.Defaults) ([]*cdk.ConfigEntry, error) {
+func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, defaults cdk.Defaults, ignorePermissionErrors, ignoreHiddenDirs bool) ([]*cdk.ConfigEntry, error) {
 	if len(entries) == 0 {
 		// If no entries, check if we should autodetect
-		detectedEntries, err := cdk.GenerateConfig(rootPath)
+		detectedEntries, err := cdk.GenerateConfig(rootPath, ignorePermissionErrors, ignoreHiddenDirs)
 		if err != nil {
 			return nil, err
 		}
@@ -480,7 +365,7 @@ func mergeCDKEntriesWithAutodetect(rootPath string, entries []*cdk.ConfigEntry, 
 		return result, nil
 	}
 
-	detectedEntries, err := cdk.GenerateConfig(rootPath)
+	detectedEntries, err := cdk.GenerateConfig(rootPath, ignorePermissionErrors, ignoreHiddenDirs)
 	if err != nil {
 		return nil, err
 	}

@@ -13,17 +13,70 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	hcljson "github.com/hashicorp/hcl/v2/json"
+	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
 	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
 )
 
-func SearchForProjects(ctx context.Context, rootDir, template string, identifier *plugin.Identifier) ([]Project, []RootModule, error) {
+type SearchOption func(*SearchOptions)
+
+type SearchOptions struct {
+	Template               string
+	Identifier             *plugin.Identifier
+	MaxSearchDepth         int
+	IgnorePermissionErrors bool
+	IgnoreHiddenDirs       bool
+	SingleFileMode         bool
+}
+
+func WithSearchTemplate(template string) SearchOption {
+	return func(o *SearchOptions) {
+		o.Template = template
+	}
+}
+
+func WithSearchIdentifier(identifier *plugin.Identifier) SearchOption {
+	return func(o *SearchOptions) {
+		o.Identifier = identifier
+	}
+}
+
+func WithSearchMaxDepth(depth int) SearchOption {
+	return func(o *SearchOptions) {
+		o.MaxSearchDepth = depth
+	}
+}
+
+func WithSearchIgnorePermissionErrors(ignore bool) SearchOption {
+	return func(o *SearchOptions) {
+		o.IgnorePermissionErrors = ignore
+	}
+}
+
+func WithSearchIgnoreHiddenDirs(ignore bool) SearchOption {
+	return func(o *SearchOptions) {
+		o.IgnoreHiddenDirs = ignore
+	}
+}
+
+func WithSearchSingleFileMode(single bool) SearchOption {
+	return func(o *SearchOptions) {
+		o.SingleFileMode = single
+	}
+}
+
+func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption) ([]Project, []RootModule, error) {
+	var options SearchOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	var rawConfig YAML
 
-	if template != "" {
+	if options.Template != "" {
 		// if the template has no projects section, we need to add one, so remember this
-		if fromTemplate, err := readAutodetectConfigFromTemplate(template); err == nil && fromTemplate != nil {
+		if fromTemplate, err := readAutodetectConfigFromTemplate(options.Template); err == nil && fromTemplate != nil {
 			rawConfig = *fromTemplate
 		} else if err != nil {
 			return nil, nil, fmt.Errorf("failed to read autodetect config from template: %s", err)
@@ -35,7 +88,11 @@ func SearchForProjects(ctx context.Context, rootDir, template string, identifier
 		return nil, nil, fmt.Errorf("autodetect configuration problem: %s", err)
 	}
 
-	tree, err := newTreeBuilder(identifier, rootDir, config, rootDir).build(ctx)
+	if options.MaxSearchDepth > 0 {
+		config.MaxSearchDepth = options.MaxSearchDepth
+	}
+
+	tree, err := newTreeBuilder(options.Identifier, rootDir, config, options.IgnorePermissionErrors, options.IgnoreHiddenDirs, options.SingleFileMode, rootDir).build(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to detect projects: %w", err)
 	}
@@ -44,7 +101,7 @@ func SearchForProjects(ctx context.Context, rootDir, template string, identifier
 
 	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config)
 
-	return expandProjects(projectNodes, rootDir, config)
+	return expandProjects(ctx, options.Identifier, projectNodes, rootDir, config)
 }
 
 // filterProjects runs the pre-expansion pipeline: dropping projects that
@@ -152,12 +209,32 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 	return filtered
 }
 
-// expandProjects materialises one or more Project entries per surviving node,
-// duplicating terraform projects across detected environments where var files
-// supply env-specific overrides.
-func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Project, []RootModule, error) {
+// expandProjects materialises one or more Project entries per surviving node. When the plugin
+// that owns a node's format can enumerate its environments (via the IdentifyEnvironments RPC) it
+// is authoritative; otherwise we fall back to the format-specific heuristic - for Terraform (and
+// Terragrunt with linked var files), duplicating the project across the environments its var
+// files describe.
+func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectNodes []*Node, rootDir string, config *Config) ([]Project, []RootModule, error) {
 	projects := make([]Project, 0, len(projectNodes))
 	rootModules := make([]RootModule, 0, len(projectNodes))
+
+	// claimedDirs maps a repo-relative directory claimed by some project's environment (via its
+	// path or dependency_paths) to the repo-relative path of the project that claimed it. Claimed
+	// directories are suppressed from being emitted as standalone projects, so a directory that is
+	// part of a parent project's environment isn't also counted as its own project. Only a plugin
+	// answering IdentifyEnvironments authoritatively populates this, so it stays empty - and
+	// suppression is a no-op - for the fallback path.
+	claimedDirs := map[string]string{}
+
+	// expanded holds each node's emitted projects until suppression has been computed across all
+	// nodes (a directory can be claimed by a node that appears later in the walk).
+	type expandedNode struct {
+		node         *Node
+		relativePath string
+		projects     []Project
+	}
+	expanded := make([]expandedNode, 0, len(projectNodes))
+
 	for _, project := range projectNodes {
 
 		relativePath, err := filepath.Rel(rootDir, project.AbsolutePath)
@@ -192,7 +269,7 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 			} else {
 				rel, err := filepath.Rel(project.AbsolutePath, tfvarFile.AbsolutePath)
 				if err != nil {
-					return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, project.AbsolutePath, err)
+					return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %s", security.SafePath(rootDir, tfvarFile.AbsolutePath), security.SafePath(rootDir, project.AbsolutePath), security.SafeErr(err))
 				}
 				globalFiles = append(globalFiles, rel)
 			}
@@ -237,9 +314,112 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 		// dedup the deps list
 		deps = dedupeStringList(deps)
 
-		// we only expand projects if they are terraform projects (or are forced to be terraform projects)
-		if len(envFiles) > 0 && (project.IsTerraform() || (project.IsTerragrunt() && project.Terragrunt.LinkTFVars)) {
+		// Ask the plugin that owns this format whether it can enumerate the project's
+		// environments. If it implements IdentifyEnvironments, its answer is authoritative and we
+		// use it directly. If it returns codes.Unimplemented (authoritative == false) we use the
+		// fallback below.
+		//
+		// We hand the plugin the var files config has already attributed to this project (including
+		// the cross-directory sibling/pibling association derived by the tree passes) so a
+		// Terraform/Terragrunt plugin can reproduce that attribution instead of re-deriving it. Paths
+		// are relative to the project dir and may escape it (e.g. "../../env/prod.tfvars").
+		var attributedFiles []plugin.AttributedVarFile
+		for _, tfvarFile := range project.Terraform.LinkedTFVarFiles {
+			rel, err := filepath.Rel(project.AbsolutePath, tfvarFile.AbsolutePath)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, project.AbsolutePath, err)
+			}
+			attributedFiles = append(attributedFiles, plugin.AttributedVarFile{
+				Path:     rel,
+				Env:      tfvarFile.Env,
+				IsGlobal: tfvarFile.IsGlobal,
+			})
+		}
 
+		var pluginEnvironments []plugin.Environment
+		var authoritative bool
+		if identifier != nil {
+			var err error
+			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		switch {
+		case authoritative && len(pluginEnvironments) > 0:
+			for _, env := range pluginEnvironments {
+				if !project.isPathAllowedForEnv(relativePath, env.Name, config) {
+					continue
+				}
+
+				// the plugin reports paths relative to the project directory; the rest of the
+				// pipeline is repo-relative, so rebase them onto the project path.
+				envPath := relativePath
+				if env.Path != "" {
+					envPath = filepath.Join(relativePath, env.Path)
+				}
+
+				varFiles := slices.Clone(env.Files)
+				slices.Sort(varFiles)
+
+				// merge the plugin's shared dependency dirs with the deps config derived itself
+				// (module sources, terragrunt includes).
+				envDeps := slices.Clone(deps)
+				for _, dep := range env.DependencyPaths {
+					envDeps = append(envDeps, filepath.Join(relativePath, dep))
+				}
+				envDeps = dedupeStringList(envDeps)
+				slices.Sort(envDeps)
+
+				envSpecificProjectName := projectName
+				if !projectBaseIsEnv {
+					envSpecificProjectName += "-" + env.Name
+				}
+
+				expandedProjects = append(expandedProjects, Project{
+					Name:              escapeStringForYAML(envSpecificProjectName),
+					Path:              escapeStringForYAML(envPath),
+					TerraformVarFiles: escapeStringListForYAML(varFiles),
+					DependencyPaths:   escapeStringListForYAML(envDeps),
+					Env:               escapeStringForYAML(env.Name),
+					Type:              projectType,
+					// the plugin authored this environment's parse-options blob (var files, workspace,
+					// etc.); carry it through so generation persists it verbatim under plugins.<name>.
+					// Only this authoritative-with-environments branch has a plugin blob - the others
+					// sideload config's locally-derived var files at generation time instead.
+					RawOptions: env.RawOptions,
+				})
+
+				// record the directories this environment claims so they aren't also emitted as
+				// standalone projects. The project's own directory is never suppressed.
+				for _, claimed := range append([]string{env.Path}, env.DependencyPaths...) {
+					dir := filepath.Clean(filepath.Join(relativePath, strings.TrimSuffix(claimed, "**")))
+					if dir == relativePath {
+						continue
+					}
+					if _, ok := claimedDirs[dir]; !ok {
+						claimedDirs[dir] = relativePath
+					}
+				}
+			}
+
+		case authoritative:
+			// the plugin answered with zero environments: this project genuinely has no variants.
+			expandedProjects = append(expandedProjects, Project{
+				Name:              escapeStringForYAML(projectName),
+				Path:              escapeStringForYAML(relativePath),
+				TerraformVarFiles: escapeStringListForYAML(globalFiles),
+				DependencyPaths:   escapeStringListForYAML(deps),
+				Env:               "", // deliberately empty
+				Type:              projectType,
+			})
+
+		case len(envFiles) > 0 && (project.IsTerraform() || (project.IsTerragrunt() && project.Terragrunt.LinkTFVars)):
+			// Fallback: the manual env detection config performed before the IdentifyEnvironments
+			// RPC existed, kept so that earlier versions of plugins keep working (backwards
+			// compatibility). This logic is frozen - no changes should be made to it.
+			//
 			// sometimes there are multiple files for the same org,
 			// in this case don't want multiple projects for the same project/dir combo
 			groupedEnvFiles := make(map[string][]TFVarsFile)
@@ -260,7 +440,7 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 				for _, env := range envs {
 					rel, err := filepath.Rel(project.AbsolutePath, env.AbsolutePath)
 					if err != nil {
-						return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", envs[0].AbsolutePath, project.AbsolutePath, err)
+						return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %s", security.SafePath(rootDir, env.AbsolutePath), security.SafePath(rootDir, project.AbsolutePath), security.SafeErr(err))
 					}
 
 					tfvarFiles = append(tfvarFiles, rel)
@@ -282,7 +462,8 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 					Type:              projectType,
 				})
 			}
-		} else {
+
+		default:
 			expandedProjects = append(expandedProjects, Project{
 				Name:              escapeStringForYAML(projectName),
 				Path:              escapeStringForYAML(relativePath),
@@ -293,13 +474,22 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 			})
 		}
 
+		expanded = append(expanded, expandedNode{node: project, relativePath: relativePath, projects: expandedProjects})
+	}
+
+	for _, e := range expanded {
+		// drop projects whose directory is claimed by a different project's environment.
+		if len(claimedDirs) > 0 && isClaimedByOtherProject(e.relativePath, claimedDirs) {
+			continue
+		}
+
 		rootModules = append(rootModules, RootModule{
-			Path:     escapeStringForYAML(relativePath),
-			Projects: expandedProjects,
-			Type:     projectType,
+			Path:     escapeStringForYAML(e.relativePath),
+			Projects: e.projects,
+			Type:     e.node.ProjectType,
 		})
 
-		projects = append(projects, expandedProjects...)
+		projects = append(projects, e.projects...)
 	}
 
 	sort.Slice(projects, func(i, j int) bool {
@@ -310,6 +500,22 @@ func expandProjects(projectNodes []*Node, rootDir string, config *Config) ([]Pro
 	})
 
 	return projects, rootModules, nil
+}
+
+// isClaimedByOtherProject reports whether dir sits inside (or equals) a directory that a
+// different project's environment claimed (via its path or dependency_paths), and so should not
+// also be emitted as a standalone project.
+func isClaimedByOtherProject(dir string, claimedDirs map[string]string) bool {
+	for claimed, owner := range claimedDirs {
+		if owner == dir {
+			continue
+		}
+		if dir == claimed || strings.HasPrefix(dir, claimed+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type TerragruntFlags struct {
@@ -450,12 +656,16 @@ func hasExtension(filename, ext string) bool {
 }
 
 func readFileWithSymlinkResolution(path string, allowedDirs []string) ([]byte, error) {
-	resolved, err := recursivelyResolveSymlink(path)
-	if err != nil {
-		return nil, err
+	var base string
+	if len(allowedDirs) > 0 {
+		base = allowedDirs[0]
 	}
-	if !isPathAllowed(resolved, allowedDirs...) {
-		return nil, fmt.Errorf("path %s is not allowed", resolved)
+	resolved, err := security.RecursivelyResolveSymlink(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve symlink %q: %s", security.SafePath(base, path), security.SafeErr(err))
+	}
+	if !security.IsPathAllowed(resolved, allowedDirs...) {
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(base, resolved))
 	}
 	// #nosec G304
 	return os.ReadFile(resolved)
@@ -637,7 +847,7 @@ func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*
 	dir := filepath.Dir(fullPath)
 	var filtered terragruntSniffResult
 	for _, include := range result.Includes {
-		if !isPathAllowed(include, allowedDirs...) {
+		if !security.IsPathAllowed(include, allowedDirs...) {
 			continue
 		}
 		if slices.Contains(filtered.Includes, include) {
@@ -648,7 +858,7 @@ func sniffTerragrunt(repoRoot string, fullPath string, allowedDirs ...string) (*
 		}
 	}
 	for _, source := range result.Sources {
-		if !isPathAllowed(source, allowedDirs...) {
+		if !security.IsPathAllowed(source, allowedDirs...) {
 			continue
 		}
 		if slices.Contains(filtered.Sources, source) {
@@ -668,15 +878,15 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 	}
 
 	// don't read files outside of the repo and safe dirs
-	if !isPathAllowed(fullPath, allowedDirs...) {
-		return nil, fmt.Errorf("path %q is not allowed", fullPath)
+	if !security.IsPathAllowed(fullPath, allowedDirs...) {
+		return nil, fmt.Errorf("path %q is not allowed", security.SafePath(repoRoot, fullPath))
 	}
 
 	// #nosec G304
 	// read the terragrunt file
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read terragrunt file %q: %s", security.SafePath(repoRoot, fullPath), security.SafeErr(err))
 	}
 
 	// parse the terragrunt as either hcl or hcljson
@@ -712,7 +922,7 @@ func sniffTerragruntWithDepthLimit(repoRoot, fullPath string, depth int, allowed
 		if src, ok := attrs["source"]; ok {
 			if value := valueFromSimpleExpr(src.Expr); value != "" {
 				path := filepath.Clean(filepath.Join(dir, value))
-				if isPathAllowed(path, allowedDirs...) {
+				if security.IsPathAllowed(path, allowedDirs...) {
 					sniff.Sources = append(sniff.Sources, path)
 				}
 			}
@@ -784,7 +994,7 @@ func pathFromComplexExpr(repoRoot, dir string, expr hcl.Expression, allowedDirs 
 		val = filepath.Join(dir, val)
 	}
 
-	if !isPathAllowed(val, allowedDirs...) {
+	if !security.IsPathAllowed(val, allowedDirs...) {
 		return ""
 	}
 
@@ -830,7 +1040,7 @@ func valueFromComplexExpr(repoRoot, dir string, expr hcl.Expression, allowedDirs
 			// look upward up to 10 directories
 			for range 10 {
 				dir = filepath.Dir(dir)
-				if !isPathAllowed(dir, allowedDirs...) {
+				if !security.IsPathAllowed(dir, allowedDirs...) {
 					break
 				}
 				path := filepath.Join(dir, filename)

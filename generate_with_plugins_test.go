@@ -2748,6 +2748,97 @@ autodetect:
 	})
 }
 
+func Test_Generate_TerragruntTerraformSharedTfvars_WithPlugins(t *testing.T) {
+	/*
+		A Terraform project and a tfvars-linking Terragrunt project sit as siblings
+		under apps/, sharing a sibling envs/ tfvars directory:
+
+		apps/
+		├── tf-app/   main.tf
+		├── tg-app/   terragrunt.hcl
+		└── envs/
+		    ├── dev.tfvars
+		    └── prod.tfvars
+
+		With link_tfvars_to_terragrunt enabled, both project types can consume the
+		shared var files, so this exercises the cross-type (Terraform + Terragrunt)
+		var-file attribution that runs as a single pass over both types. Both projects
+		get the same dev/prod split from the shared envs/ directory.
+
+		NOTE: both projects are forced to survive via include_dirs. By default a
+		standalone Terraform project is dropped from any scan that also contains a
+		Terragrunt project (the same reason the Terraform project in
+		Test_Generate_TerragruntAndTerraformMixed_WithPlugins needs an include_dirs
+		entry), which would otherwise prevent the cross-type contention from arising.
+	*/
+	root := NewFilesystem(t)
+	apps := root.AddDirectory("apps")
+	apps.AddDirectory("tf-app").AddTerraformFileWithProviderBlock("main.tf")
+	apps.AddDirectory("tg-app").AddTerragruntFile()
+	envs := apps.AddDirectory("envs")
+	envs.AddTFVarsFile("dev.tfvars")
+	envs.AddTFVarsFile("prod.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  link_tfvars_to_terragrunt: true
+  include_dirs:
+    - '**/tf-app'
+    - '**/tg-app'
+`
+
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-tf-app-dev",
+			Path:    "apps/tf-app",
+			EnvName: "dev",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/dev.tfvars",
+				},
+				Workspace: "dev",
+			},
+			Type: "terraform",
+		},
+		{
+			Name:    "apps-tf-app-prod",
+			Path:    "apps/tf-app",
+			EnvName: "prod",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/prod.tfvars",
+				},
+				Workspace: "prod",
+			},
+			Type: "terraform",
+		},
+		{
+			Name:    "apps-tg-app-dev",
+			Path:    "apps/tg-app",
+			EnvName: "dev",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/dev.tfvars",
+				},
+				Workspace: "dev",
+			},
+			Type: "terragrunt",
+		},
+		{
+			Name:    "apps-tg-app-prod",
+			Path:    "apps/tg-app",
+			EnvName: "prod",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/prod.tfvars",
+				},
+				Workspace: "prod",
+			},
+			Type: "terragrunt",
+		},
+	})
+}
+
 func Test_Generate_TfvarJson_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 

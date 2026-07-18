@@ -1,6 +1,7 @@
 package template
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"text/template"
 
 	"github.com/infracost/config/autodetect"
+	"github.com/infracost/config/internal/security"
 	jsoniter "github.com/json-iterator/go"
 	pathToRegexp "github.com/soongo/path-to-regexp"
 	"gopkg.in/yaml.v3"
@@ -207,17 +209,18 @@ func (p *Parser) pathExists(base, path string) bool {
 		base = filepath.Join(p.repoDir, base)
 	}
 
-	// Ensure the base path is within the repo directory
-	baseAbs, _ := filepath.Abs(base)
-	repoDirAbs, _ := filepath.Abs(p.repoDir)
-
-	// Add a file separator at the end to ensure we don't match a directory that starts with the same prefix
-	// e.g. `/path/to/infracost` shouldn't match `/path/to/infra`.
-	if !strings.HasPrefix(fmt.Sprintf("%s%s", baseAbs, string(filepath.Separator)), fmt.Sprintf("%s%s", repoDirAbs, string(filepath.Separator))) {
+	// Ensure the base path is within the repo directory. IsPathAllowed
+	// resolves symlinks (including intermediate ones) so an in-repo symlink
+	// can't be used to escape the repository root.
+	if !security.IsPathAllowed(base, p.repoDir) {
 		return false
 	}
 
 	targetPath := filepath.Join(base, path)
+	if !security.IsPathAllowed(targetPath, p.repoDir) {
+		return false
+	}
+
 	if _, err := os.Stat(targetPath); err == nil {
 		return true
 	}
@@ -257,6 +260,12 @@ func (p *Parser) matchPaths(pattern string) []map[any]any {
 
 	var matches []map[any]any
 	_ = filepath.WalkDir(p.repoDir, func(path string, _ fs.DirEntry, _ error) error {
+		// Skip entries that resolve outside the repository root (e.g. an
+		// in-repo symlink pointing elsewhere) so matches stay confined.
+		if !security.IsPathAllowed(path, p.repoDir) {
+			return nil
+		}
+
 		rel, _ := filepath.Rel(p.repoDir, path)
 		res, _ := match(rel)
 		if res != nil {
@@ -310,6 +319,10 @@ func (p *Parser) relPath(basepath string, tarpath string) string {
 // isDir returns is path points to a directory.
 func (p *Parser) isDir(path string) bool {
 	fullPath := filepath.Join(p.repoDir, path)
+	if !security.IsPathAllowed(fullPath, p.repoDir) {
+		return false
+	}
+
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return false
@@ -320,15 +333,22 @@ func (p *Parser) isDir(path string) bool {
 
 // readFile reads the named file and returns the contents.
 func (p *Parser) readFile(path string) string {
-	if !isSubdirectory(p.repoDir, path) {
+	fullPath := filepath.Join(p.repoDir, path)
+	if !security.IsPathAllowed(fullPath, p.repoDir) {
 		panic(fmt.Sprintf("%q must be within the repository root %q", path, filepath.Base(p.repoDir)))
 	}
 
-	fullPath := filepath.Join(p.repoDir, path)
 	// #nosec G304
 	b, err := os.ReadFile(fullPath)
 	if err != nil {
-		panic(err)
+		// Never surface the raw os error: it embeds the absolute filesystem path
+		// (e.g. the runner's working directory). Report only the relative path the
+		// caller passed. Distinguish a missing file, but for any other cause fall
+		// back to a permission error rather than leaking the underlying reason.
+		if errors.Is(err, fs.ErrNotExist) {
+			panic(fmt.Sprintf("could not read file %q: file does not exist", path))
+		}
+		panic(fmt.Sprintf("could not read file %q: permission denied", path))
 	}
 
 	return string(b)
@@ -364,31 +384,6 @@ func (p *Parser) isProduction(projectName string) bool {
 		return true
 	}
 	return p.isProductionFunc(projectName)
-}
-
-func isSubdirectory(base, target string) bool {
-	full := filepath.Join(base, target)
-	fileInfo, err := os.Lstat(full)
-	if err != nil {
-		return false
-	}
-
-	absBasePath, err := filepath.Abs(base)
-	if err != nil {
-		return false
-	}
-
-	absTargetPath, err := filepath.Abs(full)
-	if err != nil {
-		return false
-	}
-
-	relPath, err := filepath.Rel(absBasePath, absTargetPath)
-	if err != nil {
-		return false
-	}
-
-	return !strings.HasPrefix(relPath, "..") && fileInfo.Mode()&os.ModeSymlink == 0
 }
 
 // strval returns the string representation of v.
