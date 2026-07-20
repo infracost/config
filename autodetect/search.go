@@ -323,17 +323,9 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 		// the cross-directory sibling/pibling association derived by the tree passes) so a
 		// Terraform/Terragrunt plugin can reproduce that attribution instead of re-deriving it. Paths
 		// are relative to the project dir and may escape it (e.g. "../../env/prod.tfvars").
-		var attributedFiles []plugin.AttributedVarFile
-		for _, tfvarFile := range project.Terraform.LinkedTFVarFiles {
-			rel, err := filepath.Rel(project.AbsolutePath, tfvarFile.AbsolutePath)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, project.AbsolutePath, err)
-			}
-			attributedFiles = append(attributedFiles, plugin.AttributedVarFile{
-				Path:     rel,
-				Env:      tfvarFile.Env,
-				IsGlobal: tfvarFile.IsGlobal,
-			})
+		attributedFiles, err := attributeVarFiles(project.AbsolutePath, project.Terraform.LinkedTFVarFiles, projectBaseIsEnv, projectBaseEnv)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		var pluginEnvironments []plugin.Environment
@@ -550,6 +542,39 @@ type TFVarsFile struct {
 	Env          string
 	IsGlobal     bool
 	Owner        *Node
+}
+
+// attributeVarFiles builds the var-file attribution list passed to a plugin's IdentifyEnvironments
+// RPC, with paths made relative to the project directory (they may escape it, e.g.
+// "../../env/prod.tfvars").
+//
+// It applies the same environment collapse the fallback env grouping applies: when the project
+// directory is itself an environment (projectBaseIsEnv) only that environment's var files are
+// attributed - globals are always attributed. This collapse depends on the org's env matcher, which
+// the RPC cannot carry to the plugin, so it has to happen caller-side. A plugin that echoes the
+// attributed set back therefore reproduces the fallback's project set. Without it, an env-named
+// project directory fans out into one project per sibling environment, because the plugin can only
+// fall back to a hardcoded default env matcher that does not recognise the org's custom env names
+// (FIX-453).
+func attributeVarFiles(projectAbsPath string, files []TFVarsFile, projectBaseIsEnv bool, projectBaseEnv string) ([]plugin.AttributedVarFile, error) {
+	var attributedFiles []plugin.AttributedVarFile
+	for _, tfvarFile := range files {
+		if !tfvarFile.IsGlobal && projectBaseIsEnv && tfvarFile.Env != projectBaseEnv {
+			continue
+		}
+
+		rel, err := filepath.Rel(projectAbsPath, tfvarFile.AbsolutePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get relative path for tfvars file %q relative to %q: %w", tfvarFile.AbsolutePath, projectAbsPath, err)
+		}
+		attributedFiles = append(attributedFiles, plugin.AttributedVarFile{
+			Path:     rel,
+			Env:      tfvarFile.Env,
+			IsGlobal: tfvarFile.IsGlobal,
+		})
+	}
+
+	return attributedFiles, nil
 }
 
 func parseHCLFile(src []byte, absPath string) (*hcl.File, error) {
