@@ -1282,20 +1282,15 @@ autodetect:
 }
 
 // Test_Generate_CustomEnvNamedDir_Terraform_WithPlugins is the terraform counterpart of the
-// terragrunt test above, using the identical layout. It pins the CURRENT (incorrect) terraform
-// behaviour rather than the desired one, so it stays green while the terraform plugin fix is
-// outstanding.
+// terragrunt test above and asserts the identical, CORRECT result: the "stage-eu" project keeps its
+// own environment's var files.
 //
-// terraform 0.0.39 DOES implement IdentifyEnvironments but still applies its own directory-collapse
-// using a hardcoded default env matcher, which cannot see the org's custom env_names. It resolves
-// "stage-eu" to "stage", so it drops the (correctly attributed) stage-eu.tfvars and emits an
-// env-less project. The terragrunt test above shows the correct result config produces via the
-// fallback.
-//
-// TODO(FIX-453): once the terraform plugin makes IdentifyEnvironments a pure echo of the attributed
-// files (dropping its default-matcher collapse), this project should become
-// {EnvName: "stage-eu", VarFiles: ["../envs/default.tfvars", "../envs/stage-eu.tfvars"]} - matching
-// the terragrunt test - and this expectation must be updated to match.
+// This is the acceptance test for the terraform plugin fix, so it is RED until that plugin ships.
+// The currently released terraform plugin implements IdentifyEnvironments but still applies its own
+// directory-collapse with a hardcoded default env matcher: it resolves the custom env "stage-eu" to
+// "stage", drops the (correctly attributed) stage-eu.tfvars, and emits an env-less project. It turns
+// GREEN once a terraform plugin ships that makes IdentifyEnvironments a pure echo of the attributed
+// files (infracost/parser#191) - dropping that collapse so config alone owns it (FIX-453).
 func Test_Generate_CustomEnvNamedDir_Terraform_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -1324,14 +1319,13 @@ autodetect:
 
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
-			Name: "apps-stage-eu",
-			Path: "apps/stage-eu",
-			// EnvName is empty and stage-eu.tfvars is missing because the terraform plugin's
-			// default-matcher collapse wrongly drops it - see the TODO(FIX-453) above.
-			EnvName: "",
+			Name:    "apps-stage-eu",
+			Path:    "apps/stage-eu",
+			EnvName: "stage-eu",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
 					"../envs/default.tfvars",
+					"../envs/stage-eu.tfvars",
 				},
 			},
 			Type: "terraform",
