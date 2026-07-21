@@ -82,7 +82,7 @@ func isOfCDKOrigin(path string) bool {
 
 func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin.IdentificationResult {
 	if b.identifier != nil {
-		return b.identifier.IdentifyDirectory(ctx, dir, b.singleFileMode)
+		return b.identifier.IdentifyDirectory(ctx, dir, b.singleFileMode, b.config.EnvNames)
 	}
 
 	result := new(plugin.IdentificationResult)
