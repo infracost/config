@@ -40,6 +40,7 @@ type Config struct {
 	PreferFolderNameForEnv     bool
 	EnvMatcher                 *EnvFileMatcher
 	LinkTFVarsToTerragrunt     bool
+	EnvNames                   []string
 }
 
 var defaultTFVarExtensions = []string{
@@ -59,6 +60,11 @@ type CompiledPathOverride struct {
 }
 
 func (a *YAML) Compile() (*Config, error) {
+	envNames := a.EnvNames
+	if len(envNames) == 0 {
+		envNames = defaultEnvs
+	}
+
 	compiled := Config{
 		TerraformVarFileExtensions: a.TerraformVarFileExtensions,
 		MaxSearchDepth:             a.MaxSearchDepth,
@@ -66,6 +72,7 @@ func (a *YAML) Compile() (*Config, error) {
 		RawExcludeDirs:             a.ExcludeDirs,
 		RawIncludeDirs:             a.IncludeDirs,
 		LinkTFVarsToTerragrunt:     a.LinkTFVarsToTerragrunt || a.ForceProjectType == "terraform",
+		EnvNames:                   envNames,
 	}
 
 	if compiled.MaxSearchDepth == 0 {
@@ -134,7 +141,6 @@ func (c *Config) shouldIncludeDir(rootPath string, dir string) bool {
 }
 
 func (c *Config) shouldUseProject(rootPath string, node *Node, moduleSources map[string]struct{}, force bool) bool {
-
 	// if the directory is marked as excluded and not included we skip it.
 	// The include_dirs setting takes precedence over exclude_dirs.
 	if c.shouldSkipDir(rootPath, node.AbsolutePath) && !c.shouldIncludeDir(rootPath, node.AbsolutePath) {

@@ -75,14 +75,17 @@ func (i *Identifier) Close() {
 	i.plugins = nil
 }
 
-func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool) *IdentificationResult {
+func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool, envNames []string) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
 			pluginType = types.ProjectType(*plugin.parserConfig.ConfigFileProjectType)
 		}
-		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{Directory: dir})
+		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{
+			Directory:        dir,
+			EnvironmentNames: envNames,
+		})
 		if err != nil || result == nil {
 			continue
 		}
@@ -134,7 +137,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 // attributedFiles carries the var files the caller has already attributed to this project so the
 // owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
 // migration aid; other plugins ignore it.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile) ([]Environment, bool, error) {
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile, envNames []string) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
 		pluginType := types.ProjectType(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
@@ -153,7 +156,11 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 			})
 		}
 
-		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{Directory: dir, AttributedFiles: pbAttributedFiles})
+		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{
+			Directory:        dir,
+			AttributedFiles:  pbAttributedFiles,
+			EnvironmentNames: envNames,
+		})
 		if err != nil {
 			// The RPC is optional: a plugin that doesn't implement it returns codes.Unimplemented.
 			// That is the expected forward-compat signal, so we treat it as "no authoritative answer"

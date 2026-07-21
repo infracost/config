@@ -332,7 +332,7 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 		var authoritative bool
 		if identifier != nil {
 			var err error
-			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles)
+			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles, config.EnvNames)
 			if err != nil {
 				return nil, nil, err
 			}
