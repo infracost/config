@@ -1230,6 +1230,109 @@ func Test_Generate_EnvDirs_WithPlugins(t *testing.T) {
 	})
 }
 
+// Test_Generate_CustomEnvNamedDir_Terragrunt_WithPlugins covers FIX-453 for the terragrunt plugin.
+// The project directory "stage-eu" is a custom environment (configured via env_names) whose name
+// the plugin's built-in default matcher would resolve differently ("stage-eu" -> "stage"). Only the
+// org's env matcher knows it is the "stage-eu" environment, so only that environment's var files
+// should be attributed to it.
+//
+// terragrunt 0.0.37 does not implement IdentifyEnvironments (the FIX-453 revert), so config falls
+// back to its own env heuristic which honours the org matcher. This test therefore PASSES.
+func Test_Generate_CustomEnvNamedDir_Terragrunt_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	/*
+		apps/
+		  stage-eu/          (project dir; custom env "stage-eu")
+		    terragrunt.hcl
+		  envs/
+		    stage-eu.tfvars
+		    dev.tfvars
+		    default.tfvars
+	*/
+	appsDir := root.AddDirectory("apps")
+	appsDir.AddDirectory("stage-eu").AddTerragruntFile()
+	envsDir := appsDir.AddDirectory("envs")
+	envsDir.AddTFVarsFile("stage-eu.tfvars")
+	envsDir.AddTFVarsFile("dev.tfvars")
+	envsDir.AddTFVarsFile("default.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  link_tfvars_to_terragrunt: true
+  env_names:
+    - stage-eu
+    - dev
+`
+
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-stage-eu",
+			Path:    "apps/stage-eu",
+			EnvName: "stage-eu",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/default.tfvars",
+					"../envs/stage-eu.tfvars",
+				},
+			},
+			Type: "terragrunt",
+		},
+	})
+}
+
+// Test_Generate_CustomEnvNamedDir_Terraform_WithPlugins is the terraform counterpart of the
+// terragrunt test above and asserts the identical, CORRECT result: the "stage-eu" project keeps its
+// own environment's var files.
+//
+// This is the acceptance test for the terraform plugin fix, so it is RED until that plugin ships.
+// The currently released terraform plugin implements IdentifyEnvironments but still applies its own
+// directory-collapse with a hardcoded default env matcher: it resolves the custom env "stage-eu" to
+// "stage", drops the (correctly attributed) stage-eu.tfvars, and emits an env-less project. It turns
+// GREEN once a terraform plugin ships that makes IdentifyEnvironments a pure echo of the attributed
+// files (infracost/parser#191) - dropping that collapse so config alone owns it (FIX-453).
+func Test_Generate_CustomEnvNamedDir_Terraform_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	/*
+		apps/
+		  stage-eu/          (project dir; custom env "stage-eu")
+		    main.tf
+		  envs/
+		    stage-eu.tfvars
+		    dev.tfvars
+		    default.tfvars
+	*/
+	appsDir := root.AddDirectory("apps")
+	appsDir.AddDirectory("stage-eu").AddTerraformFileWithProviderBlock("main.tf")
+	envsDir := appsDir.AddDirectory("envs")
+	envsDir.AddTFVarsFile("stage-eu.tfvars")
+	envsDir.AddTFVarsFile("dev.tfvars")
+	envsDir.AddTFVarsFile("default.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  env_names:
+    - stage-eu
+    - dev
+`
+
+	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-stage-eu",
+			Path:    "apps/stage-eu",
+			EnvName: "stage-eu",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/default.tfvars",
+					"../envs/stage-eu.tfvars",
+				},
+			},
+			Type: "terraform",
+		},
+	})
+}
+
 func Test_Generate_EnvNames_WithPlugins(t *testing.T) {
 	root := NewFilesystem(t)
 

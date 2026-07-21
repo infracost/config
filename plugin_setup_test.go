@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -21,16 +21,20 @@ import (
 )
 
 const (
-	pluginManifestURL = "https://infracost.github.io/cli/manifest.json"
-	pluginCacheDir    = ".test-plugins"
-	pluginBinarySize  = 1 << 30 // 1 GB cap for archive entries
+	// defaultPluginBaseURL is the CLI's default plugin release host (see the CLI's
+	// pkg/plugins config.BaseURL / INFRACOST_CLI_PLUGIN_BASE_URL). The e2e tests download the
+	// same "latest" plugin binaries the CLI installs, using the same URL scheme, so they always
+	// exercise the plugins that ship to users.
+	defaultPluginBaseURL = "https://releases.infracost.io"
+	pluginCacheDir       = ".test-plugins"
+	pluginBinarySize     = 1 << 30 // 1 GB cap for archive entries
 )
 
 var requiredPlugins = []string{
-	"infracost-plugin-terraform",
-	"infracost-plugin-terragrunt",
-	"infracost-plugin-cloudformation",
-	"infracost-plugin-ciscostacks",
+	"infracost-parser-terraform",
+	"infracost-parser-terragrunt",
+	"infracost-parser-cloudformation",
+	"infracost-parser-ciscostacks",
 }
 
 // pluginDir is the directory the test plugins are extracted into. It is
@@ -62,9 +66,10 @@ func testConfigGenerationWithTemplateAndPlugins(t *testing.T, dir, template stri
 	testConfigGenerationWithTemplate(t, dir, template, wantProjects, opts...)
 }
 
-// installTestPlugins resolves the manifest, downloads the latest version of
-// each required plugin for the current OS/arch (skipping any already present),
-// extracts the binary, and returns the directory the binaries live in.
+// installTestPlugins downloads the latest release of each required plugin for the current OS/arch
+// (skipping any already present), extracts the binary, and returns the directory the binaries live
+// in. It downloads exactly the way the CLI does - from {baseURL}/{plugin}/{goos}/{goarch}/latest -
+// so the e2e tests always run against the plugins that ship to users.
 func installTestPlugins() (string, error) {
 	dir, err := pluginInstallDir()
 	if err != nil {
@@ -74,12 +79,10 @@ func installTestPlugins() (string, error) {
 		return "", fmt.Errorf("create plugin dir: %w", err)
 	}
 
-	manifest, err := fetchPluginManifest()
-	if err != nil {
-		return "", fmt.Errorf("fetch manifest: %w", err)
+	baseURL := os.Getenv("INFRACOST_CLI_PLUGIN_BASE_URL")
+	if baseURL == "" {
+		baseURL = defaultPluginBaseURL
 	}
-
-	platform := runtime.GOOS + "_" + runtime.GOARCH
 
 	var wg sync.WaitGroup
 	errs := make([]error, len(requiredPlugins))
@@ -87,7 +90,7 @@ func installTestPlugins() (string, error) {
 		wg.Add(1)
 		go func(i int, name string) {
 			defer wg.Done()
-			errs[i] = ensurePlugin(dir, manifest, name, platform)
+			errs[i] = ensurePlugin(dir, baseURL, name)
 		}(i, name)
 	}
 	wg.Wait()
@@ -109,56 +112,25 @@ func pluginInstallDir() (string, error) {
 	return filepath.Join(filepath.Dir(file), pluginCacheDir), nil
 }
 
-type pluginManifest struct {
-	Plugins map[string]struct {
-		Latest   string                         `json:"latest"`
-		Versions map[string]pluginManifestEntry `json:"versions"`
-	} `json:"plugins"`
+// pluginArchiveName returns the release archive filename for the current OS, matching the CLI's
+// plugin release layout (data.tar.gz everywhere except Windows).
+func pluginArchiveName() string {
+	if runtime.GOOS == "windows" {
+		return "data.zip"
+	}
+	return "data.tar.gz"
 }
 
-type pluginManifestEntry struct {
-	Artifacts map[string]pluginArtifact `json:"artifacts"`
-}
+// ensurePlugin downloads the latest release of the named plugin the same way the CLI installs
+// plugins: the artifact and its checksum live at {baseURL}/{plugin}/{goos}/{goarch}/latest/. It
+// caches by the published archive checksum, so it only re-downloads once "latest" moves on.
+func ensurePlugin(destDir, baseURL, name string) error {
+	archiveName := pluginArchiveName()
+	artifactURL := fmt.Sprintf("%s/%s/%s/%s/latest/%s", strings.TrimRight(baseURL, "/"), name, runtime.GOOS, runtime.GOARCH, archiveName)
 
-type pluginArtifact struct {
-	URL  string `json:"url"`
-	SHA  string `json:"sha"`
-	Name string `json:"name"`
-}
-
-func fetchPluginManifest() (*pluginManifest, error) {
-	resp, err := http.Get(pluginManifestURL) //nolint:gosec // G107: constant URL
+	expectedSHA, err := fetchChecksum(artifactURL + ".sha256")
 	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("manifest fetch returned %s", resp.Status)
-	}
-
-	var m pluginManifest
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-		return nil, err
-	}
-	return &m, nil
-}
-
-func ensurePlugin(destDir string, manifest *pluginManifest, name, platform string) error {
-	plugin, ok := manifest.Plugins[name]
-	if !ok {
-		return fmt.Errorf("plugin %q not in manifest", name)
-	}
-	if plugin.Latest == "" {
-		return fmt.Errorf("plugin %q has no latest version", name)
-	}
-	version, ok := plugin.Versions[plugin.Latest]
-	if !ok {
-		return fmt.Errorf("plugin %q latest version %s missing from manifest", name, plugin.Latest)
-	}
-	artifact, ok := version.Artifacts[platform]
-	if !ok {
-		return fmt.Errorf("plugin %q has no artifact for %s", name, platform)
+		return fmt.Errorf("fetch checksum for %s: %w", name, err)
 	}
 
 	binaryName := name
@@ -167,43 +139,68 @@ func ensurePlugin(destDir string, manifest *pluginManifest, name, platform strin
 	}
 	binaryPath := filepath.Join(destDir, binaryName)
 
-	// Cache by storing the installed SHA alongside the binary so we can skip
-	// re-downloading when the manifest hasn't moved on.
+	// Cache by storing the installed archive SHA alongside the binary so we can skip
+	// re-downloading while "latest" hasn't moved on.
 	shaPath := binaryPath + ".sha"
-	if existing, err := os.ReadFile(shaPath); err == nil && string(existing) == artifact.SHA {
+	if existing, err := os.ReadFile(shaPath); err == nil && string(existing) == expectedSHA {
 		if _, err := os.Stat(binaryPath); err == nil {
 			return nil
 		}
 	}
 
-	archivePath, err := downloadAndVerify(artifact.URL, artifact.SHA, name)
+	archivePath, err := downloadAndVerify(artifactURL, expectedSHA, name)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 	defer func() { _ = os.Remove(archivePath) }()
 
 	switch {
-	case len(artifact.Name) > 7 && artifact.Name[len(artifact.Name)-7:] == ".tar.gz":
+	case strings.HasSuffix(archiveName, ".tar.gz"):
 		if err := extractTarGzBinary(archivePath, binaryPath, name); err != nil {
 			return fmt.Errorf("extract %s: %w", name, err)
 		}
-	case len(artifact.Name) > 4 && artifact.Name[len(artifact.Name)-4:] == ".zip":
+	case strings.HasSuffix(archiveName, ".zip"):
 		if err := extractZipBinary(archivePath, binaryPath, binaryName); err != nil {
 			return fmt.Errorf("extract %s: %w", name, err)
 		}
 	default:
-		return fmt.Errorf("unsupported archive format %s", artifact.Name)
+		return fmt.Errorf("unsupported archive format %s", archiveName)
 	}
 
 	if err := os.Chmod(binaryPath, 0o755); err != nil { //nolint:gosec // G302: plugin must be executable
 		return fmt.Errorf("chmod %s: %w", name, err)
 	}
 
-	if err := os.WriteFile(shaPath, []byte(artifact.SHA), 0o644); err != nil { //nolint:gosec // G306: trivial cache marker
+	if err := os.WriteFile(shaPath, []byte(expectedSHA), 0o644); err != nil { //nolint:gosec // G306: trivial cache marker
 		return fmt.Errorf("write sha marker for %s: %w", name, err)
 	}
 
 	return nil
+}
+
+// fetchChecksum fetches a plugin's ".sha256" file and returns the hex digest (the first
+// whitespace-separated field, matching the CLI's checksum parsing).
+func fetchChecksum(rawURL string) (string, error) {
+	resp, err := http.Get(rawURL) //nolint:gosec // G107: URL derived from the plugin base URL
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("checksum fetch from %s returned %s", rawURL, resp.Status)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return "", err
+	}
+
+	fields := strings.Fields(string(data))
+	if len(fields) == 0 {
+		return "", fmt.Errorf("empty checksum response from %s", rawURL)
+	}
+	return fields[0], nil
 }
 
 func downloadAndVerify(rawURL, expectedSHA, name string) (string, error) {
