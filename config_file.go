@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/infracost/config/cdk"
 	"github.com/infracost/config/internal/security"
+	"github.com/infracost/config/plugin"
 	"gopkg.in/yaml.v3"
 )
 
@@ -155,11 +157,60 @@ func fileExists(path string) bool {
 	return !info.IsDir()
 }
 
+// LoadOption configures LoadConfigFile.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	identifier       *plugin.Identifier
+	pluginDir        string
+	defaultPluginDir bool
+}
+
+// WithLoadIdentifier supplies an existing plugin identifier for type backfill. The caller retains
+// ownership of its lifecycle - LoadConfigFile will not close it. Prefer this over WithLoadPluginDir
+// when a plugin identifier already exists (e.g. one the runner created for generation), to avoid
+// re-spawning plugin processes.
+func WithLoadIdentifier(identifier *plugin.Identifier) LoadOption {
+	return func(o *loadOptions) { o.identifier = identifier }
+}
+
+// WithLoadPluginDir makes LoadConfigFile create (and close) a plugin identifier from the given
+// directory so that plugin-provided project types (e.g. kubernetes) can be backfilled. Ignored when
+// WithLoadIdentifier is also supplied.
+func WithLoadPluginDir(dir string) LoadOption {
+	return func(o *loadOptions) { o.pluginDir = dir }
+}
+
+// WithLoadDefaultPluginDir is like WithLoadPluginDir but uses the default plugin directory.
+func WithLoadDefaultPluginDir(useDefault bool) LoadOption {
+	return func(o *loadOptions) { o.defaultPluginDir = useDefault }
+}
+
 func LoadConfigFile(
+	ctx context.Context,
 	path, repoPath string,
+	opts ...LoadOption,
 ) (*Config, error) {
 	if !fileExists(path) {
 		return nil, fmt.Errorf("config file does not exist at %s", path)
+	}
+
+	var loadOpts loadOptions
+	for _, opt := range opts {
+		opt(&loadOpts)
+	}
+
+	// Resolve a plugin identifier so plugin-provided types (e.g. kubernetes) can be backfilled. Prefer
+	// a caller-supplied identifier; otherwise create one from the configured plugin dir and close it
+	// when we're done.
+	identifier := loadOpts.identifier
+	if identifier == nil && (loadOpts.defaultPluginDir || loadOpts.pluginDir != "") {
+		created, err := plugin.CreateIdentifier(ctx, loadOpts.pluginDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+		}
+		defer created.Close()
+		identifier = created
 	}
 
 	// #nosec G304
@@ -172,6 +223,11 @@ func LoadConfigFile(
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
+
+	// A hand-written config whose project entries omit `type:` would otherwise default to terraform
+	// downstream, breaking non-terraform projects. There is no autodetect context here, so resolve
+	// each typeless project by sniffing its path (using plugins when available). See FIX-495.
+	backfillProjectTypes(ctx, repoPath, cfg, nil, identifier, false)
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {
 		if err := finalizeCDKConfig(repoPath, cfg, false, false); err != nil {

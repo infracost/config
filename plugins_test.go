@@ -57,7 +57,7 @@ projects:
     type: terraform
 `), 0o600))
 
-	cfg, err := config.LoadConfigFile(path, dir)
+	cfg, err := config.LoadConfigFile(t.Context(), path, dir)
 	require.NoError(t, err)
 
 	byPath := map[string]*config.Project{}
