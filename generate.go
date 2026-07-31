@@ -124,6 +124,75 @@ var (
 	ErrInvalidConfigTemplate     = errors.New("invalid config template")
 )
 
+// backfillProjectTypes fills in the type for any generated project that carries none. A project
+// without a type otherwise defaults to terraform downstream, which breaks non-terraform projects
+// (cloudformation, kubernetes, ...) — the common cause being user templates that emit project
+// entries without threading a `type:` through. For each typeless project we prefer the type that
+// autodetection already determined for its path; if the path was not autodetected we sniff the
+// directory directly, and leave the project typeless only when nothing can be identified. See
+// FIX-495.
+//
+// projects and identifier may be nil (e.g. when loading a hand-written config file), in which case
+// every typeless project is resolved purely by sniffing its directory.
+func backfillProjectTypes(
+	ctx context.Context,
+	rootDir string,
+	output *Config,
+	projects []autodetect.Project,
+	identifier *plugin.Identifier,
+	singleFileMode bool,
+) {
+	if output == nil {
+		return
+	}
+
+	// Map each autodetected path to its type. First non-unknown type wins; a path that resolved to
+	// conflicting types is left for the directory-sniff fallback / typeless.
+	detected := make(map[string]ProjectType, len(projects))
+	for _, p := range projects {
+		if p.Type == ProjectTypeUnknown {
+			continue
+		}
+		key := relProjectPath(rootDir, p.Path)
+		if existing, ok := detected[key]; ok && existing != p.Type {
+			continue
+		}
+		detected[key] = p.Type
+	}
+
+	for _, project := range output.Projects {
+		if project.Type != ProjectTypeUnknown {
+			continue
+		}
+
+		if t, ok := detected[relProjectPath(rootDir, project.Path)]; ok {
+			project.Type = t
+			continue
+		}
+
+		// The path was not autodetected (e.g. a hand-written config, or a path a template hardcodes);
+		// sniff it directly. It may be a directory or a single file (e.g. a CloudFormation template).
+		path := project.Path
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(rootDir, path)
+		}
+		if t := autodetect.PathType(ctx, identifier, path, singleFileMode, nil); t != ProjectTypeUnknown {
+			project.Type = t
+		}
+	}
+}
+
+// relProjectPath normalizes a project path to a cleaned repo-relative key so rendered project paths
+// and autodetected paths compare equal regardless of whether either is absolute.
+func relProjectPath(rootDir, path string) string {
+	if filepath.IsAbs(path) {
+		if rel, err := filepath.Rel(rootDir, path); err == nil {
+			path = rel
+		}
+	}
+	return filepath.Clean(path)
+}
+
 // Generate takes a repository root  directory and produces a config.
 // Options can be used to supply a template etc.
 func Generate(
@@ -277,6 +346,11 @@ func Generate(
 			output.Projects = append(output.Projects, p)
 		}
 	}
+
+	// Backfill the type for any project a template (or a projects: section) emitted without one.
+	// Downstream a missing type defaults to terraform, which silently breaks non-terraform projects
+	// (cloudformation, kubernetes, ...). See FIX-495.
+	backfillProjectTypes(ctx, rootDir, output, projects, identifier, genOptions.SingleFileMode)
 
 	if err := output.normalize(); err != nil {
 		return nil, fmt.Errorf("%w (failed to normalize config file): %s", ErrInvalidConfigYAML, err)

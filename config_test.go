@@ -301,7 +301,7 @@ projects:
 				}()
 			}
 
-			c, err := LoadConfigFile(path, tmp)
+			c, err := LoadConfigFile(t.Context(), path, tmp)
 			if tt.error != nil {
 				require.Error(t, tt.error, err)
 			} else {
@@ -550,13 +550,81 @@ projects:
 	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Empty(t, cfg.CDK.Projects, "should have no CDK entries")
 	require.Len(t, cfg.Projects, 1)
 	require.Equal(t, "my-terraform", cfg.Projects[0].Name)
+}
+
+// TestLoadConfigFile_BackfillsMissingType checks that a hand-written config whose project omits
+// `type:` gets its type filled in from the project's directory, rather than being left untyped
+// (which defaults to terraform downstream and breaks non-terraform projects). See FIX-495.
+func TestLoadConfigFile_BackfillsMissingType(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "tf"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "tf", "main.tf"), []byte(`variable "x" {}`), 0o600))
+
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+`), 0o600))
+
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	require.NoError(t, err)
+	require.Len(t, cfg.Projects, 1)
+	assert.Equal(t, ProjectTypeTerraform, cfg.Projects[0].Type)
+}
+
+// TestLoadConfigFile_BackfillsMissingType_FilePath checks the backfill when a project path points at
+// a single file rather than a directory - here a CloudFormation template referenced directly. Without
+// file handling the directory sniff would fail and the project would wrongly default to terraform.
+func TestLoadConfigFile_BackfillsMissingType_FilePath(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "cfn"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "cfn", "template.yml"), []byte(`Resources:
+  MyResource:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+`), 0o600))
+
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: cfn/template.yml
+    name: my-cfn
+`), 0o600))
+
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	require.NoError(t, err)
+	require.Len(t, cfg.Projects, 1)
+	assert.Equal(t, ProjectTypeCloudFormation, cfg.Projects[0].Type)
+}
+
+// TestLoadConfigFile_PreservesExplicitType checks that a user-provided type is never overwritten by
+// the backfill, even when it disagrees with what the directory looks like.
+func TestLoadConfigFile_PreservesExplicitType(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "tf"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "tf", "main.tf"), []byte(`variable "x" {}`), 0o600))
+
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+    type: terragrunt
+`), 0o600))
+
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	require.NoError(t, err)
+	require.Len(t, cfg.Projects, 1)
+	assert.Equal(t, ProjectTypeTerragrunt, cfg.Projects[0].Type)
 }
 
 // TestGenerate_CDKDefaults_WithTemplate_DefaultsOnly tests that cdk defaults in a template
@@ -671,7 +739,7 @@ projects:
 	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)

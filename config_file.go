@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -156,6 +157,7 @@ func fileExists(path string) bool {
 }
 
 func LoadConfigFile(
+	ctx context.Context,
 	path, repoPath string,
 ) (*Config, error) {
 	if !fileExists(path) {
@@ -172,6 +174,11 @@ func LoadConfigFile(
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidConfigYAML, err)
 	}
+
+	// A hand-written config whose project entries omit `type:` would otherwise default to terraform
+	// downstream, breaking non-terraform projects. There is no autodetect context here, so resolve
+	// each typeless project by sniffing its directory relative to the repo. See FIX-495.
+	backfillProjectTypes(ctx, repoPath, cfg, nil, nil, false)
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {
 		if err := finalizeCDKConfig(repoPath, cfg, false, false); err != nil {

@@ -43,6 +43,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "main",
+			Type: "terraform",
 			Path: ".",
 		},
 	})
@@ -1010,6 +1011,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1023,6 +1025,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-prod",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1036,6 +1039,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-dev",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1049,6 +1053,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-prod",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1104,6 +1109,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1114,6 +1120,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-prod",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1124,6 +1131,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-dev",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1134,6 +1142,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-prod",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1385,6 +1394,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1398,6 +1408,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-baz",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1411,6 +1422,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-bat",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1424,6 +1436,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-baz",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -1800,6 +1813,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				Vars: map[string]interface{}{
@@ -1809,6 +1823,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-dev",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				Vars: map[string]interface{}{
@@ -1818,6 +1833,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-prod",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				Vars: map[string]interface{}{
@@ -3170,6 +3186,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3183,6 +3200,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-baz",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3196,6 +3214,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-bat",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3209,6 +3228,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-baz",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3281,6 +3301,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-components-foo-dev",
+			Type: "terraform",
 			Path: "infra/components/foo-dev",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3291,6 +3312,7 @@ projects:
 		},
 		{
 			Name: "infra-components-foo-prod",
+			Type: "terraform",
 			Path: "infra/components/foo-prod",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3350,6 +3372,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-bat",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3362,6 +3385,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-baz",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3374,6 +3398,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-bat",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3386,6 +3411,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-baz",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3753,6 +3779,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-bar-dev",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -3763,6 +3790,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-prod",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4392,6 +4420,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "apps-.hidden-dev",
+			Type: "terraform",
 			Path: "apps/.hidden",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4402,6 +4431,7 @@ projects:
 		},
 		{
 			Name: "apps-.hidden-prod",
+			Type: "terraform",
 			Path: "apps/.hidden",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4412,6 +4442,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-dev",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4422,6 +4453,7 @@ projects:
 		},
 		{
 			Name: "apps-bar-prod",
+			Type: "terraform",
 			Path: "apps/bar",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4432,6 +4464,7 @@ projects:
 		},
 		{
 			Name: "apps-bat-dev",
+			Type: "terraform",
 			Path: "apps/bat",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4442,6 +4475,7 @@ projects:
 		},
 		{
 			Name: "apps-bat-prod",
+			Type: "terraform",
 			Path: "apps/bat",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4452,6 +4486,7 @@ projects:
 		},
 		{
 			Name: "apps-baz-dev",
+			Type: "terraform",
 			Path: "apps/baz",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4462,6 +4497,7 @@ projects:
 		},
 		{
 			Name: "apps-baz-prod",
+			Type: "terraform",
 			Path: "apps/baz",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4472,6 +4508,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-dev",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4482,6 +4519,7 @@ projects:
 		},
 		{
 			Name: "apps-foo-prod",
+			Type: "terraform",
 			Path: "apps/foo",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4492,6 +4530,7 @@ projects:
 		},
 		{
 			Name: "apps-wildcard-one-dev",
+			Type: "terraform",
 			Path: "apps/wildcard/one",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4502,6 +4541,7 @@ projects:
 		},
 		{
 			Name: "apps-wildcard-one-prod",
+			Type: "terraform",
 			Path: "apps/wildcard/one",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4512,6 +4552,7 @@ projects:
 		},
 		{
 			Name: "apps-wildcard-two-dev",
+			Type: "terraform",
 			Path: "apps/wildcard/two",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4522,6 +4563,7 @@ projects:
 		},
 		{
 			Name: "apps-wildcard-two-prod",
+			Type: "terraform",
 			Path: "apps/wildcard/two",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -4587,6 +4629,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-foo",
+			Type: "terraform",
 			Path: "infra/foo",
 		},
 	})
@@ -4676,6 +4719,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "infra-dev",
+			Type: "terraform",
 			Path: "infra/dev",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{},
@@ -4687,6 +4731,7 @@ projects:
 		},
 		{
 			Name: "infra-modules-is_a_project",
+			Type: "terraform",
 			Path: "infra/modules/is_a_project",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{},
@@ -4695,6 +4740,7 @@ projects:
 		},
 		{
 			Name: "infra-prod",
+			Type: "terraform",
 			Path: "infra/prod",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{},
@@ -5007,6 +5053,7 @@ projects:
 	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
 		{
 			Name: "dev",
+			Type: "terraform",
 			Path: ".",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -5016,6 +5063,7 @@ projects:
 		},
 		{
 			Name: "prod",
+			Type: "terraform",
 			Path: ".",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
@@ -5163,6 +5211,7 @@ projects:
 		{
 			Path: "dev",
 			Name: "dev",
+			Type: "terraform",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
 					"terraform.tfvars",
@@ -5172,6 +5221,7 @@ projects:
 		{
 			Path: "prod",
 			Name: "prod",
+			Type: "terraform",
 			Terraform: config.ProjectTerraform{
 				VarFiles: []string{
 					"terraform.tfvars",
