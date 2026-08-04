@@ -8,7 +8,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/infracost/go-proto v1.29.1-0.20260804070951-247f26c4a4b5
+	github.com/infracost/go-proto v1.29.1-0.20260804075844-b2cf53a23162
 	github.com/infracost/proto v1.163.1-0.20260804063818-1685ac50472d
 	github.com/json-iterator/go v1.1.12
 	github.com/soongo/path-to-regexp v1.6.4
