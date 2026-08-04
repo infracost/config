@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/infracost/config/types"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 	pb "github.com/infracost/proto/gen/go/infracost/plugin"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,8 +33,8 @@ func CreateIdentifier(ctx context.Context, pluginDir string) (*Identifier, error
 }
 
 type IdentificationResult struct {
-	DirectoryType   types.ProjectType
-	FileTypes       map[string]types.ProjectType
+	DirectoryType   projecttype.Type
+	FileTypes       map[string]projecttype.Type
 	DependencyPaths []string
 }
 
@@ -78,9 +78,9 @@ func (i *Identifier) Close() {
 func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool, envNames []string) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
-		pluginType := types.ProjectType(plugin.info.Name)
+		pluginType := projecttype.Type(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
-			pluginType = types.ProjectType(*plugin.parserConfig.ConfigFileProjectType)
+			pluginType = projecttype.Type(*plugin.parserConfig.ConfigFileProjectType)
 		}
 		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{
 			Directory:        dir,
@@ -96,8 +96,8 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 				DependencyPaths: result.DependencyPaths,
 			}
 		}
-		if len(result.Files) > 0 && (output == nil || output.DirectoryType == types.ProjectTypeUnknown) {
-			m := make(map[string]types.ProjectType, len(result.Files))
+		if len(result.Files) > 0 && (output == nil || output.DirectoryType == projecttype.Unknown) {
+			m := make(map[string]projecttype.Type, len(result.Files))
 			for _, file := range result.Files {
 				if filepath.IsAbs(file) {
 					file, err = filepath.Rel(dir, file)
@@ -137,11 +137,11 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 // attributedFiles carries the var files the caller has already attributed to this project so the
 // owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
 // migration aid; other plugins ignore it.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType types.ProjectType, attributedFiles []AttributedVarFile, envNames []string) ([]Environment, bool, error) {
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType projecttype.Type, attributedFiles []AttributedVarFile, envNames []string) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
-		pluginType := types.ProjectType(plugin.info.Name)
+		pluginType := projecttype.Type(plugin.info.Name)
 		if plugin.parserConfig.ConfigFileProjectType != nil {
-			pluginType = types.ProjectType(*plugin.parserConfig.ConfigFileProjectType)
+			pluginType = projecttype.Type(*plugin.parserConfig.ConfigFileProjectType)
 		}
 		if pluginType != projectType {
 			continue
