@@ -45,13 +45,49 @@ var (
 		"playground",
 	}
 
+	// defaultExcludedDirs are pruned from the walk entirely: nothing beneath
+	// them is identified, so no plugin identification RPCs are issued for the
+	// subtree. Dependency and build-cache directories (node_modules etc.) can
+	// hold thousands of JSON/YAML files that would otherwise each be offered to
+	// every plugin. Deliberately absent: dist, build and target (some repos
+	// keep synthesized CloudFormation/ARM output there), vendor (terraform
+	// modules are sometimes vendored), and .aws-sam/.serverless (generated
+	// templates some orgs scan on purpose).
 	defaultExcludedDirs = []string{
+		// infracost
 		".infracost",
+		// VCS internals
 		".git",
+		".svn",
+		".hg",
+		// terraform/terragrunt caches
 		".terraform",
 		".terragrunt-cache",
+		// samples
 		"example",
 		"examples",
+		// dependency stores
+		"node_modules",
+		"bower_components",
+		".yarn",
+		".pnpm-store",
+		".venv",
+		"venv",
+		// language/tool caches and build output that never holds templates
+		"__pycache__",
+		".tox",
+		".pytest_cache",
+		".mypy_cache",
+		".ruff_cache",
+		".gradle",
+		".next",
+		".nuxt",
+		".cache",
+		// editor / AI-agent metadata
+		".idea",
+		".vscode",
+		".vs",
+		".claude",
 	}
 )
 

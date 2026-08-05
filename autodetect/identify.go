@@ -1,6 +1,7 @@
 package autodetect
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -12,19 +13,53 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// maxIdentifyBytes caps how much of a candidate file identification reads.
+// CloudFormation templates are hand-authored documents rarely beyond a few
+// hundred KB; anything bigger than this is not worth sniffing whole.
+const maxIdentifyBytes = 10 * 1024 * 1024
+
+// markerFormatVersion and markerResourceTypeSep are byte markers, at least
+// one combination of which must appear in any document IsCF accepts: either
+// an AWSTemplateFormatVersion key, or a Resources map holding a Type like
+// "AWS::EC2::Instance" (the "::" separator). Scanning for them before
+// unmarshaling rejects nearly all non-CloudFormation JSON/YAML — package
+// locks, OpenAPI specs, CI config — without paying for a parse. The key scans
+// fold case because encoding/json matches keys case-insensitively. (A
+// document spelling a marker via escape sequences would slip past the scan —
+// real templates never do that.)
+const (
+	markerFormatVersion   = "awstemplateformatversion"
+	markerResources       = "resources"
+	markerResourceTypeSep = "::"
+)
+
+func maybeCloudFormationContent(content []byte) bool {
+	if containsFold(content, markerFormatVersion) {
+		return true
+	}
+	return containsFold(content, markerResources) && bytes.Contains(content, []byte(markerResourceTypeSep))
+}
+
 // IdentifyCloudFormationPath returns true if the given path is a cloudformation template
 func IdentifyCloudFormationPath(path string) bool {
 	if isOfCDKOrigin(path) {
 		return false
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".json":
-		return identifyCloudFormationJSON(path)
-	case ".yml", ".yaml":
-		return identifyCloudFormationYAML(path)
+	case ".json", ".yml", ".yaml":
 	default:
 		return false
 	}
+
+	content := readCapped(path, maxIdentifyBytes)
+	if content == nil || !maybeCloudFormationContent(content) {
+		return false
+	}
+
+	if strings.ToLower(filepath.Ext(path)) == ".json" {
+		return identifyCloudFormationJSON(content)
+	}
+	return identifyCloudFormationYAML(content)
 }
 
 type identificationSniff struct {
@@ -47,12 +82,7 @@ func (sniff *identificationSniff) IsCF() bool {
 	return false
 }
 
-func identifyCloudFormationJSON(path string) bool {
-	// #nosec G304
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
+func identifyCloudFormationJSON(content []byte) bool {
 	var sniff identificationSniff
 	if err := json.Unmarshal(content, &sniff); err != nil {
 		return false
@@ -60,12 +90,7 @@ func identifyCloudFormationJSON(path string) bool {
 	return sniff.IsCF()
 }
 
-func identifyCloudFormationYAML(path string) bool {
-	// #nosec G304
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
+func identifyCloudFormationYAML(content []byte) bool {
 	var sniff identificationSniff
 	if err := yaml.Unmarshal(content, &sniff); err != nil {
 		return false
