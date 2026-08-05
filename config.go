@@ -180,6 +180,7 @@ const (
 	ProjectTypeCDKPython      = projecttype.CDKPython
 	ProjectTypeCiscoStacks    = projecttype.CiscoStacks
 	ProjectTypeKubernetes     = projecttype.Kubernetes
+	ProjectTypeARM            = projecttype.ARM
 )
 
 type AWSCredentials struct {

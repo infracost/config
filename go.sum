@@ -44,6 +44,8 @@ github.com/infracost/go-proto v1.29.1-0.20260804075844-b2cf53a23162 h1:Nd/aJFMxN
 github.com/infracost/go-proto v1.29.1-0.20260804075844-b2cf53a23162/go.mod h1:NCRyEn9L6TAFcA/xw+ocyoY4TB1H/8WNkBXwycoNQ/A=
 github.com/infracost/go-proto v1.29.1-0.20260805092357-ccd8eb10984d h1:l/49rNNf8+NdKP7oZ1Gc+lAvaz7KDvVe5ONKbSHSRfk=
 github.com/infracost/go-proto v1.29.1-0.20260805092357-ccd8eb10984d/go.mod h1:L7f4TIpdZ6xYoogP07WRiXFZz1mhVZO2v20GgXFvhI8=
+github.com/infracost/go-proto v1.29.1-0.20260805110809-62acbf6f966e h1:Qk6lY4hXrCxQF/Np3wzfzCDxdn4bTPFIqZDuABXiXAI=
+github.com/infracost/go-proto v1.29.1-0.20260805110809-62acbf6f966e/go.mod h1:L7f4TIpdZ6xYoogP07WRiXFZz1mhVZO2v20GgXFvhI8=
 github.com/infracost/proto v1.160.0 h1:qPH7Afh1//xlZyPYnFYpF3koi1nGpeMMDRfMWHzi3Fg=
 github.com/infracost/proto v1.160.0/go.mod h1:Z8vPWBWblwJlw+/ksO+BtsXwf9NiOcSTWx0WRWNbfUA=
 github.com/infracost/proto v1.163.1-0.20260804063818-1685ac50472d h1:q07iBffPPUg2dqzI01GOh+rFNhou7aO+pURWy9bzzKA=
