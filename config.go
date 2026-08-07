@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/infracost/config/cdk"
-	"github.com/infracost/config/types"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 )
 
 const CurrentVersion = "0.3"
@@ -165,20 +165,22 @@ type ProjectAWSConfig struct {
 	AccountID string `yaml:"account_id,omitempty"`
 }
 
-// ProjectType is aliased to types.ProjectType so the canonical definition can
-// live in a child-importable package while existing consumers of
+// ProjectType is aliased to projecttype.Type, whose package holds the canonical
+// definition shared with the CLI and runner, so existing consumers of
 // config.ProjectType keep compiling unchanged.
-type ProjectType = types.ProjectType
+type ProjectType = projecttype.Type
 
 const (
-	ProjectTypeUnknown        = types.ProjectTypeUnknown
-	ProjectTypeTerraform      = types.ProjectTypeTerraform
-	ProjectTypeTerragrunt     = types.ProjectTypeTerragrunt
-	ProjectTypeCloudFormation = types.ProjectTypeCloudFormation
-	ProjectTypeCDKTypeScript  = types.ProjectTypeCDKTypeScript
-	ProjectTypeCDKJavaScript  = types.ProjectTypeCDKJavaScript
-	ProjectTypeCDKPython      = types.ProjectTypeCDKPython
-	ProjectTypeCiscoStacks    = types.ProjectTypeCiscoStacks
+	ProjectTypeUnknown        = projecttype.Unknown
+	ProjectTypeTerraform      = projecttype.Terraform
+	ProjectTypeTerragrunt     = projecttype.Terragrunt
+	ProjectTypeCloudFormation = projecttype.CloudFormation
+	ProjectTypeCDKTypeScript  = projecttype.CDKTypeScript
+	ProjectTypeCDKJavaScript  = projecttype.CDKJavaScript
+	ProjectTypeCDKPython      = projecttype.CDKPython
+	ProjectTypeCiscoStacks    = projecttype.CiscoStacks
+	ProjectTypeKubernetes     = projecttype.Kubernetes
+	ProjectTypeARM            = projecttype.ARM
 )
 
 type AWSCredentials struct {

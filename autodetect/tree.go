@@ -16,7 +16,7 @@ import (
 
 	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
-	"github.com/infracost/config/types"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 )
 
 // treeBuilder carries the invariant inputs to the recursive directory walk so
@@ -168,7 +168,7 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 	idResult := b.identifyDirectory(ctx, path)
 	if idResult != nil {
-		if pt := idResult.DirectoryType; pt != types.ProjectTypeUnknown && !b.singleFileMode {
+		if pt := idResult.DirectoryType; pt != projecttype.Unknown && !b.singleFileMode {
 
 			for _, dep := range idResult.DependencyPaths {
 				// dep is relative to "path", but we need it relative to the repo root
@@ -183,9 +183,9 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 
 			node.ProjectType = pt
 			switch pt {
-			case types.ProjectTypeTerragrunt:
+			case projecttype.Terragrunt:
 				node.Terragrunt.HasFiles = true
-			case types.ProjectTypeTerraform:
+			case projecttype.Terraform:
 				node.Terraform.HasFiles = true
 			}
 		} else {
@@ -270,8 +270,8 @@ func (b *treeBuilder) buildSubtree(ctx context.Context, path string, depth int, 
 		// Unknown directories are treated as candidates for any known project
 		// type. Terragrunt directories also accept terraform files because
 		// terragrunt projects extend terraform.
-		isTGContext := node.ProjectType == types.ProjectTypeTerragrunt || node.ProjectType == types.ProjectTypeUnknown
-		isTFContext := isTGContext || node.ProjectType == types.ProjectTypeTerraform
+		isTGContext := node.ProjectType == projecttype.Terragrunt || node.ProjectType == projecttype.Unknown
+		isTFContext := isTGContext || node.ProjectType == projecttype.Terraform
 
 		name := info.Name()
 		switch {

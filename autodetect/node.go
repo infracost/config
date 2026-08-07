@@ -4,14 +4,14 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/infracost/config/types"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 )
 
 type Node struct {
 	Name            string
 	AbsolutePath    string
 	Children        []*Node
-	ProjectType     types.ProjectType
+	ProjectType     projecttype.Type
 	Terragrunt      TerragruntFlags
 	Terraform       TerraformFlags
 	TFVars          TFVarsFlags
@@ -57,7 +57,7 @@ func (n *Node) LinkTFVarFile(tfVarFile TFVarsFile, limitIfLinkedEnv bool) bool {
 }
 
 func (n *Node) IsProject() bool {
-	return n.ProjectType != types.ProjectTypeUnknown
+	return n.ProjectType != projecttype.Unknown
 }
 
 func (n *Node) HasProjects() bool {
@@ -84,15 +84,15 @@ func (n *Node) FindProjects() []*Node {
 }
 
 func (n *Node) IsTerraform() bool {
-	return n.ProjectType == types.ProjectTypeTerraform
+	return n.ProjectType == projecttype.Terraform
 }
 
 func (n *Node) IsTerragrunt() bool {
-	return n.ProjectType == types.ProjectTypeTerragrunt
+	return n.ProjectType == projecttype.Terragrunt
 }
 
 func (n *Node) IsCloudFormation() bool {
-	return n.ProjectType == types.ProjectTypeCloudFormation
+	return n.ProjectType == projecttype.CloudFormation
 }
 
 func (n *Node) IsInsideProject() bool {

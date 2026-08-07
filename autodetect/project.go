@@ -1,6 +1,6 @@
 package autodetect
 
-import "github.com/infracost/config/types"
+import projecttype "github.com/infracost/go-proto/pkg/project"
 
 type Project struct {
 	Name              string
@@ -8,7 +8,7 @@ type Project struct {
 	TerraformVarFiles []string
 	DependencyPaths   []string
 	Env               string
-	Type              types.ProjectType
+	Type              projecttype.Type
 	Metadata          map[string]string
 	// RawOptions is the plugin-authored parse-options blob (always JSON) for this project, carried
 	// from the IdentifyEnvironments RPC. It is only set when a plugin returned environments
@@ -20,5 +20,5 @@ type Project struct {
 type RootModule struct {
 	Path     string
 	Projects []Project
-	Type     types.ProjectType
+	Type     projecttype.Type
 }
