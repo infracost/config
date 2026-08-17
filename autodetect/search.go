@@ -198,10 +198,24 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 		projectNodes = filtered
 	}
 
-	// remove cfn projects that lie within a tf/tg project
+	// Remove CloudFormation projects that lie within a Terraform/Terragrunt
+	// project: such a template is nearly always deployed by the Terraform that
+	// encloses it (via aws_cloudformation_stack), so emitting it standalone
+	// represents one deployment twice.
+	//
+	// This deliberately checks CloudFormation-inside-Terraform specifically
+	// rather than "any non-Terraform project inside any project". Nesting is the
+	// normal, correct layout for other formats - a Kustomize app is a directory
+	// holding base/ and overlays/ that are themselves kustomization directories -
+	// and suppressing a nested project because a parent directory also identifies
+	// is what dropped every Kubernetes project in a GitOps repository whose root
+	// happened to hold a single manifest. Where a parent genuinely owns its
+	// nested directories, the parent's IdentifyEnvironments answer claims them
+	// (see claimedDirs in expandProjects), which suppresses them precisely instead
+	// of by proximity.
 	filtered = make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
-		if (!project.IsTerragrunt() && !project.IsTerraform()) && project.IsInsideProject() {
+		if project.IsCloudFormation() && project.IsInsideTerraformProject() {
 			continue
 		}
 		filtered = append(filtered, project)

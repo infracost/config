@@ -35,6 +35,7 @@ var requiredPlugins = []string{
 	"infracost-parser-terragrunt",
 	"infracost-parser-cloudformation",
 	"infracost-parser-ciscostacks",
+	"infracost-parser-kubernetes",
 }
 
 // pluginDir is the directory the test plugins are extracted into. It is

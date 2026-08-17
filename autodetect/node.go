@@ -95,16 +95,20 @@ func (n *Node) IsCloudFormation() bool {
 	return n.ProjectType == projecttype.CloudFormation
 }
 
-func (n *Node) IsInsideProject() bool {
+// IsInsideTerraformProject reports whether any ancestor of n is a Terraform or
+// Terragrunt project. It is deliberately narrower than "is inside any project":
+// nested projects are the normal layout for several formats (a Kustomize app
+// directory holds base/ and overlays/ subdirectories that are themselves
+// projects), so proximity to another project is not on its own a reason to drop
+// one.
+func (n *Node) IsInsideTerraformProject() bool {
 	if n == nil {
 		return false
 	}
-	n = n.Parent
-	for n != nil {
-		if n.IsProject() {
+	for p := n.Parent; p != nil; p = p.Parent {
+		if p.IsTerraform() || p.IsTerragrunt() {
 			return true
 		}
-		n = n.Parent
 	}
 	return false
 }

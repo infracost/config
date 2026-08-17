@@ -78,6 +78,59 @@ func (d *Directory) AddCFNJSON() {
 }`)
 }
 
+// AddKubernetesDeployment writes a manifest holding a single costed workload,
+// which makes the directory a raw-manifest Kubernetes project.
+func (d *Directory) AddKubernetesDeployment(name string) {
+	d.AddFile(name).Content(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: web
+          image: web:1
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+`)
+}
+
+// AddKustomization writes a kustomization file referencing the given resources,
+// which makes the directory a Kustomize project. A reference to a sibling
+// directory's base is what marks this directory as an overlay of it.
+func (d *Directory) AddKustomization(resources ...string) {
+	content := "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n"
+	for _, resource := range resources {
+		content += fmt.Sprintf("  - %s\n", resource)
+	}
+	d.AddFile("kustomization.yaml").Content(content)
+}
+
+// AddGitOpsControllerManifest writes a manifest for a GitOps controller object
+// that points at manifests held elsewhere rather than describing a workload of
+// its own (here an Argo CD Application). It carries apiVersion and kind like any
+// manifest, so a directory holding only these is still a Kubernetes project -
+// one that happens to have nothing to cost.
+func (d *Directory) AddGitOpsControllerManifest(name string) {
+	d.AddFile(name).Content(`apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+spec:
+  source:
+    path: apps
+    repoURL: https://github.com/example/manifests.git
+    targetRevision: HEAD
+    directory:
+      recurse: true
+`)
+}
+
 func (d *Directory) AddFile(name string) *File {
 	f := &File{
 		t:      d.t,
