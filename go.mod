@@ -9,7 +9,7 @@ require (
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/infracost/go-proto v1.30.0
-	github.com/infracost/proto v1.165.0
+	github.com/infracost/proto v1.167.0
 	github.com/json-iterator/go v1.1.12
 	github.com/soongo/path-to-regexp v1.6.4
 	github.com/stretchr/testify v1.11.1

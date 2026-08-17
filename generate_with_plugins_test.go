@@ -5515,3 +5515,99 @@ func Test_TerraformDuplicateDependenciesRemoved_WithPlugins(t *testing.T) {
 	assert.Equal(t, 1, len(generated.Projects[0].DependencyPaths), "the detected project should have one dependency")
 	assert.Equal(t, "tf/**", generated.Projects[0].DependencyPaths[0], "the detected project should have a dependency on the terraform directory (tf)")
 }
+
+// A stray terraform file in a parent directory used to make that directory look like a
+// terraform project and, through the old "drop non-terraform projects nested in a project"
+// rule, silently discard every project beneath it - even though the parent itself was dropped
+// from the output for having no provider or backend. Plugins now declare their own exclusions,
+// and cisco stacks declares none [FIX-592].
+func Test_Generate_CiscoStacksUnderTerraformDir_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	stacksDir := root.AddDirectory("stacks")
+	// the poisoning file: no provider or backend, so stacks/ never appears in the output
+	stacksDir.AddTerraformWithNoBackendOrProvider("common.tf")
+
+	myStack := stacksDir.AddDirectory("my-stack")
+	base := myStack.AddDirectory("base")
+	base.AddTerraformFileWithProviderBlock("main.tf")
+	layers := myStack.AddDirectory("layers")
+	layers.AddDirectory("dev")
+
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.NoError(t, err)
+
+	var cisco []*config.Project
+	for _, project := range generated.Projects {
+		if project.Type == config.ProjectTypeCiscoStacks {
+			cisco = append(cisco, project)
+		}
+	}
+
+	require.Len(t, cisco, 1, "the cisco stacks layer should be detected despite the stray stacks/common.tf")
+	assert.Equal(t, "stacks/my-stack/layers/dev", cisco[0].Path)
+}
+
+// CloudFormation declares that a terraform/terragrunt ancestor supersedes it, so a template
+// nested inside a real terraform project is still treated as an artifact of that project.
+func Test_Generate_CFNInsideTerraformProject_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	infra := root.AddDirectory("infra")
+	infra.AddTerraformFileWithProviderBlock("main.tf")
+	infra.AddDirectory("nested").AddCFNYAML()
+
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+		{
+			Name: "infra",
+			Path: "infra",
+			Type: config.ProjectTypeTerraform,
+		},
+	})
+}
+
+// ...but only a project that survives filtering can supersede anything. A terraform directory
+// dropped for having no provider or backend must not suppress a template below it [FIX-592].
+func Test_Generate_CFNInsideDroppedTerraformDir_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	infra := root.AddDirectory("infra")
+	infra.AddTerraformWithNoBackendOrProvider("variables.tf")
+	infra.AddDirectory("nested").AddCFNYAML()
+
+	// a second, real terraform project so infra/ isn't kept by the single-project fallback
+	other := root.AddDirectory("other")
+	other.AddTerraformFileWithProviderBlock("main.tf")
+
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+		{
+			Name: "infra-nested-template",
+			Path: "infra/nested/template.yml",
+			Type: config.ProjectTypeCloudFormation,
+		},
+		{
+			Name: "other",
+			Path: "other",
+			Type: config.ProjectTypeTerraform,
+		},
+	})
+}
+
+// Terraform declares that terragrunt anywhere in the repo supersedes it.
+func Test_Generate_TerraformExcludedByTerragrunt_WithPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+
+	tf := root.AddDirectory("tf")
+	tf.AddTerraformFileWithProviderBlock("main.tf")
+
+	tg := root.AddDirectory("tg")
+	tg.AddTerragruntFile()
+
+	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+		{
+			Name: "tg",
+			Path: "tg",
+			Type: config.ProjectTypeTerragrunt,
+		},
+	})
+}

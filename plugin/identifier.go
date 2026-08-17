@@ -38,6 +38,61 @@ type IdentificationResult struct {
 	DependencyPaths []string
 }
 
+// Exclusions are the conditions under which a plugin's projects should be dropped, as declared
+// by that plugin in GetParserConfig. A plugin that declares neither is never excluded.
+type Exclusions struct {
+	// IfRepoContains lists project types whose presence anywhere in the repo excludes this
+	// plugin's projects - Terraform declares Terragrunt, because a Terragrunt repo drives its
+	// Terraform directories through Terragrunt.
+	IfRepoContains []projecttype.Type
+	// IfInside lists project types that exclude this plugin's projects when one of them owns an
+	// ancestor directory - CloudFormation declares Terraform and Terragrunt, because a template
+	// nested inside one is usually an artifact of it.
+	IfInside []projecttype.Type
+}
+
+// IsZero reports whether the plugin declared no exclusion conditions at all.
+func (e Exclusions) IsZero() bool {
+	return len(e.IfRepoContains) == 0 && len(e.IfInside) == 0
+}
+
+// ProjectExclusions returns the exclusion conditions declared by each plugin, keyed by the
+// project type it owns. The returned map is never nil, so callers can use nil to mean "running
+// without plugins" and fall back to their own rules. Types whose plugin declared nothing are
+// absent from the map.
+func (i *Identifier) ProjectExclusions() map[projecttype.Type]Exclusions {
+	exclusions := make(map[projecttype.Type]Exclusions, len(i.plugins))
+
+	for _, plugin := range i.plugins {
+		if plugin.parserConfig == nil {
+			continue
+		}
+
+		e := Exclusions{
+			IfRepoContains: projectTypes(plugin.parserConfig.ExcludeIfRepoContains),
+			IfInside:       projectTypes(plugin.parserConfig.ExcludeIfInside),
+		}
+		if e.IsZero() {
+			continue
+		}
+
+		exclusions[plugin.ProjectType()] = e
+	}
+
+	return exclusions
+}
+
+func projectTypes(names []string) []projecttype.Type {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]projecttype.Type, 0, len(names))
+	for _, name := range names {
+		out = append(out, projecttype.Type(name))
+	}
+	return out
+}
+
 // Environment is the plugin-agnostic view of a single environment (e.g. a dev/staging/prod
 // variant of a project) returned by a plugin's IdentifyEnvironments RPC. It mirrors the proto
 // Environment message but keeps the generated type out of the autodetect package, matching the
@@ -78,10 +133,7 @@ func (i *Identifier) Close() {
 func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool, envNames []string) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
-		pluginType := projecttype.Type(plugin.info.Name)
-		if plugin.parserConfig.ConfigFileProjectType != nil {
-			pluginType = projecttype.Type(*plugin.parserConfig.ConfigFileProjectType)
-		}
+		pluginType := plugin.ProjectType()
 		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{
 			Directory:        dir,
 			EnvironmentNames: envNames,
@@ -139,10 +191,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFi
 // migration aid; other plugins ignore it.
 func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType projecttype.Type, attributedFiles []AttributedVarFile, envNames []string) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
-		pluginType := projecttype.Type(plugin.info.Name)
-		if plugin.parserConfig.ConfigFileProjectType != nil {
-			pluginType = projecttype.Type(*plugin.parserConfig.ConfigFileProjectType)
-		}
+		pluginType := plugin.ProjectType()
 		if pluginType != projectType {
 			continue
 		}
