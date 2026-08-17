@@ -15,6 +15,7 @@ import (
 	hcljson "github.com/hashicorp/hcl/v2/json"
 	"github.com/infracost/config/internal/security"
 	"github.com/infracost/config/plugin"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 	"github.com/zclconf/go-cty/cty"
 	"gopkg.in/yaml.v3"
 )
@@ -99,7 +100,14 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 
 	tree.ModifyTFVarFileEnvs(config)
 
-	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config)
+	// nil (rather than empty) when running without plugins, so filterProjects can tell "no plugin
+	// declared an exclusion" from "there are no plugins to declare one"
+	var exclusions map[projecttype.Type]plugin.Exclusions
+	if options.Identifier != nil {
+		exclusions = options.Identifier.ProjectExclusions()
+	}
+
+	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config, exclusions)
 
 	return expandProjects(ctx, options.Identifier, projectNodes, rootDir, config)
 }
@@ -108,30 +116,37 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 // shouldn't appear in the final output, decorating the tree with linked var
 // files, and gathering the module sources needed by downstream filters.
 // Returns the surviving project nodes in walk order.
-func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Config) []*Node {
-	// exclude terragrunt projects whose children include the parent's terragrunt files
+//
+// exclusions holds the per-format exclusion conditions the plugins declared; it is nil when
+// running without plugins, in which case the legacy hardcoded rules apply instead.
+func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Config, exclusions map[projecttype.Type]plugin.Exclusions) []*Node {
 	filtered := make([]*Node, 0, len(projectNodes))
-	for _, project := range projectNodes {
-		// we only check if there are terragrunt files, we don;t care if the project type was overridden
-		if !project.Terragrunt.HasFiles {
-			filtered = append(filtered, project)
-			continue
-		}
-		var includes bool
-		project.VisitDescendants(func(child *Node) bool {
-			for _, filename := range []string{"terragrunt.hcl", "terragrunt.hcl.json"} {
-				if slices.Contains(child.Terragrunt.IncludedOutsideTerragruntFiles, filepath.Join(project.AbsolutePath, filename)) {
-					includes = true
-					return false
-				}
+	if exclusions == nil {
+		// exclude terragrunt projects whose children include the parent's terragrunt files. With
+		// plugins this is the terragrunt plugin's call: it does not identify a directory as a
+		// project when a nested unit includes its config file.
+		for _, project := range projectNodes {
+			// we only check if there are terragrunt files, we don;t care if the project type was overridden
+			if !project.Terragrunt.HasFiles {
+				filtered = append(filtered, project)
+				continue
 			}
-			return true
-		})
-		if !includes {
-			filtered = append(filtered, project)
+			var includes bool
+			project.VisitDescendants(func(child *Node) bool {
+				for _, filename := range []string{"terragrunt.hcl", "terragrunt.hcl.json"} {
+					if slices.Contains(child.Terragrunt.IncludedOutsideTerragruntFiles, filepath.Join(project.AbsolutePath, filename)) {
+						includes = true
+						return false
+					}
+				}
+				return true
+			})
+			if !includes {
+				filtered = append(filtered, project)
+			}
 		}
+		projectNodes = filtered
 	}
-	projectNodes = filtered
 
 	// grab all unique local module sources
 	moduleSources := map[string]struct{}{}
@@ -179,6 +194,77 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 		projectNodes = filtered
 	}
 
+	if exclusions == nil {
+		return applyLegacyExclusions(projectNodes, rootDir, config)
+	}
+
+	return applyExclusions(projectNodes, rootDir, config, exclusions)
+}
+
+// applyExclusions drops projects whose owning plugin declared that another format supersedes
+// them, either anywhere in the repo or in an ancestor directory (see plugin.Exclusions).
+//
+// Conditions are evaluated against a single snapshot taken before any project is dropped, so a
+// pair of plugins that exclude on each other's type both drop rather than the outcome depending
+// on plugin order. An explicit include_dirs match overrides an exclusion.
+func applyExclusions(projectNodes []*Node, rootDir string, config *Config, exclusions map[projecttype.Type]plugin.Exclusions) []*Node {
+	presentTypes := make(map[projecttype.Type]bool, len(projectNodes))
+	// only projects that survived the filters above can exclude anything. A directory dropped
+	// earlier - a provider-less terraform dir, say - is not part of the output and must not
+	// silently suppress its subtree [FIX-592].
+	surviving := make(map[string]bool, len(projectNodes))
+	for _, project := range projectNodes {
+		presentTypes[project.ProjectType] = true
+		surviving[project.AbsolutePath] = true
+	}
+
+	filtered := make([]*Node, 0, len(projectNodes))
+	for _, project := range projectNodes {
+		exclusion, ok := exclusions[project.ProjectType]
+		if !ok || config.shouldIncludeDir(rootDir, project.AbsolutePath) {
+			filtered = append(filtered, project)
+			continue
+		}
+
+		if slices.ContainsFunc(exclusion.IfRepoContains, func(t projecttype.Type) bool {
+			return presentTypes[t]
+		}) {
+			continue
+		}
+
+		if hasSurvivingAncestorOfType(project, surviving, exclusion.IfInside) {
+			continue
+		}
+
+		filtered = append(filtered, project)
+	}
+
+	return filtered
+}
+
+// hasSurvivingAncestorOfType reports whether any ancestor directory of project is itself a
+// surviving project of one of the given types.
+func hasSurvivingAncestorOfType(project *Node, surviving map[string]bool, projectTypes []projecttype.Type) bool {
+	if len(projectTypes) == 0 {
+		return false
+	}
+
+	for ancestor := project.Parent; ancestor != nil; ancestor = ancestor.Parent {
+		if !surviving[ancestor.AbsolutePath] {
+			continue
+		}
+		if slices.Contains(projectTypes, ancestor.ProjectType) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// applyLegacyExclusions is the pre-plugin behaviour, kept for the path that runs without any
+// plugins (where identification also falls back to local file sniffing). Plugins declare these
+// conditions for themselves now - see applyExclusions.
+func applyLegacyExclusions(projectNodes []*Node, rootDir string, config *Config) []*Node {
 	// skip all terraform projects if terragrunt is present in the repo
 	var hasTerragrunt bool
 	for _, project := range projectNodes {
@@ -188,7 +274,7 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 		}
 	}
 	if hasTerragrunt {
-		filtered = make([]*Node, 0, len(projectNodes))
+		filtered := make([]*Node, 0, len(projectNodes))
 		for _, project := range projectNodes {
 			if project.IsTerraform() && !config.shouldIncludeDir(rootDir, project.AbsolutePath) {
 				continue
@@ -199,7 +285,7 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 	}
 
 	// remove cfn projects that lie within a tf/tg project
-	filtered = make([]*Node, 0, len(projectNodes))
+	filtered := make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
 		if (!project.IsTerragrunt() && !project.IsTerraform()) && project.IsInsideProject() {
 			continue

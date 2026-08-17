@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 	pb "github.com/infracost/proto/gen/go/infracost/plugin"
 	"google.golang.org/grpc"
 )
@@ -111,6 +112,15 @@ func (p *Plugin) GetInfo() *pb.GetPluginInfoResponse {
 
 func (p *Plugin) GetParserConfig() *pb.GetParserConfigResponse {
 	return p.parserConfig
+}
+
+// ProjectType is the config project type this plugin's projects are recorded as. Plugins may
+// override it, but the recommended default is the plugin name.
+func (p *Plugin) ProjectType() projecttype.Type {
+	if p.parserConfig != nil && p.parserConfig.ConfigFileProjectType != nil {
+		return projecttype.Type(*p.parserConfig.ConfigFileProjectType)
+	}
+	return projecttype.Type(p.info.Name)
 }
 
 // Close terminates the plugin subprocess.
