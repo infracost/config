@@ -130,13 +130,17 @@ func (i *Identifier) Close() {
 	i.plugins = nil
 }
 
-func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool, envNames []string) *IdentificationResult {
+// IdentifyDirectory asks each plugin, in priority order, whether dir is a project. repoRoot is the
+// root of the repository being searched, passed to plugins so they can bound checks on dir's
+// ancestors to the repository; it may be empty when the caller doesn't know it.
+func (i *Identifier) IdentifyDirectory(ctx context.Context, dir, repoRoot string, singleFileMode bool, envNames []string) *IdentificationResult {
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
 		pluginType := plugin.ProjectType()
 		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{
 			Directory:        dir,
 			EnvironmentNames: envNames,
+			RepoDirectory:    repoRoot,
 		})
 		if err != nil || result == nil {
 			continue

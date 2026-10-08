@@ -101,9 +101,9 @@ type Plugin struct {
 }
 
 // IdentifyProjects calls the plugin's ParserService.IdentifyProjects RPC for
-// the given directory.
-func (p *Plugin) IdentifyProjects(ctx context.Context, dir string, envNames []string) (*pb.IdentifyProjectsResponse, error) {
-	return p.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{Directory: dir, EnvironmentNames: envNames})
+// the given directory, inside the repository rooted at repoRoot (empty if unknown).
+func (p *Plugin) IdentifyProjects(ctx context.Context, dir, repoRoot string, envNames []string) (*pb.IdentifyProjectsResponse, error) {
+	return p.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{Directory: dir, EnvironmentNames: envNames, RepoDirectory: repoRoot})
 }
 
 func (p *Plugin) GetInfo() *pb.GetPluginInfoResponse {

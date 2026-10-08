@@ -176,7 +176,7 @@ func backfillProjectTypes(
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(rootDir, path)
 		}
-		if t := autodetect.PathType(ctx, identifier, path, singleFileMode, nil); t != ProjectTypeUnknown {
+		if t := autodetect.PathType(ctx, identifier, path, rootDir, singleFileMode, nil); t != ProjectTypeUnknown {
 			project.Type = t
 		}
 	}
