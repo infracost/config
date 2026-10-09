@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	projecttype "github.com/infracost/go-proto/pkg/project"
 	pb "github.com/infracost/proto/gen/go/infracost/plugin"
@@ -134,14 +135,20 @@ func (i *Identifier) Close() {
 	i.plugins = nil
 }
 
-func (i *Identifier) IdentifyDirectory(ctx context.Context, dir string, singleFileMode bool, envNames []string) *IdentificationResult {
+// IdentifyDirectory asks each plugin, in priority order, whether dir is a project. repoRoot is the
+// root of the repository being searched, passed to plugins so they can bound checks on dir's
+// ancestors to the repository; it may be empty when the caller doesn't know it.
+func (i *Identifier) IdentifyDirectory(ctx context.Context, dir, repoRoot string, singleFileMode bool, envNames []string) *IdentificationResult {
+	dir, repoRoot, ok := canonicalPaths(dir, repoRoot)
+	if !ok {
+		// dir resolves outside the repository, e.g. through a symlink. Skip it, as the tree walk
+		// skips symlinks that leave the repository: plugins aren't asked about it.
+		return nil
+	}
 	var output *IdentificationResult
 	for _, plugin := range i.plugins {
 		pluginType := plugin.ProjectType()
-		result, err := plugin.parser.IdentifyProjects(ctx, &pb.IdentifyProjectsRequest{
-			Directory:        dir,
-			EnvironmentNames: envNames,
-		})
+		result, err := plugin.IdentifyProjects(ctx, dir, repoRoot, envNames)
 		if err != nil || result == nil {
 			continue
 		}
@@ -248,4 +255,33 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 	}
 
 	return nil, false, nil
+}
+
+// canonicalPaths returns dir and repoRoot absolute, cleaned and with symlinks resolved, so they are
+// in the same form as IdentifyProjectsRequest requires: callers may resolve one and not the other
+// (the tree walk resolves dir but not the root). ok is false if dir is not inside repoRoot, e.g. a
+// symlink pointing out of the repository. An empty repoRoot (unknown) stays empty and is always ok.
+func canonicalPaths(dir, repoRoot string) (string, string, bool) {
+	dir = canonicalPath(dir)
+	if repoRoot == "" {
+		return dir, "", true
+	}
+	repoRoot = canonicalPath(repoRoot)
+	rel, err := filepath.Rel(repoRoot, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return dir, repoRoot, false
+	}
+	return dir, repoRoot, true
+}
+
+// canonicalPath makes path absolute and resolves its symlinks, falling back to the cleaned
+// absolute path if it can't be resolved.
+func canonicalPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
 }

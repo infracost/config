@@ -107,7 +107,7 @@ func isOfCDKOrigin(path string) bool {
 
 func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin.IdentificationResult {
 	if b.identifier != nil {
-		return b.identifier.IdentifyDirectory(ctx, dir, b.singleFileMode, b.config.EnvNames)
+		return b.identifier.IdentifyDirectory(ctx, dir, b.repoRoot, b.singleFileMode, b.config.EnvNames)
 	}
 
 	return identifyDirectoryLocal(dir, b.singleFileMode)
@@ -118,25 +118,25 @@ func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin
 // projecttype.Unknown ("") when nothing can be identified. This is the standalone entry config
 // generation uses to backfill a project's type when a config or user template emits a project
 // without one (see FIX-495).
-func PathType(ctx context.Context, identifier *plugin.Identifier, path string, singleFileMode bool, envNames []string) projecttype.Type {
+func PathType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
 	info, err := os.Stat(path)
 	if err != nil {
 		return projecttype.Unknown
 	}
 	if info.IsDir() {
-		return DirectoryType(ctx, identifier, path, singleFileMode, envNames)
+		return DirectoryType(ctx, identifier, path, repoRoot, singleFileMode, envNames)
 	}
-	return fileType(ctx, identifier, path, singleFileMode, envNames)
+	return fileType(ctx, identifier, path, repoRoot, singleFileMode, envNames)
 }
 
 // DirectoryType returns the single project type detected for a directory, using the plugin
 // identifier when one is available and falling back to local file sniffing otherwise. It returns
 // projecttype.Unknown ("") when nothing can be identified (including when the directory holds a
 // mix of conflicting file types).
-func DirectoryType(ctx context.Context, identifier *plugin.Identifier, dir string, singleFileMode bool, envNames []string) projecttype.Type {
+func DirectoryType(ctx context.Context, identifier *plugin.Identifier, dir, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
 	var result *plugin.IdentificationResult
 	if identifier != nil {
-		result = identifier.IdentifyDirectory(ctx, dir, singleFileMode, envNames)
+		result = identifier.IdentifyDirectory(ctx, dir, repoRoot, singleFileMode, envNames)
 	} else {
 		result = identifyDirectoryLocal(dir, singleFileMode)
 	}
@@ -146,9 +146,9 @@ func DirectoryType(ctx context.Context, identifier *plugin.Identifier, dir strin
 // fileType identifies the type of a single file. With a plugin configured we ask the identifier
 // about the file's parent directory and pick out this file's entry (falling back to the directory
 // type); otherwise we sniff the file locally.
-func fileType(ctx context.Context, identifier *plugin.Identifier, path string, singleFileMode bool, envNames []string) projecttype.Type {
+func fileType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
 	if identifier != nil {
-		result := identifier.IdentifyDirectory(ctx, filepath.Dir(path), singleFileMode, envNames)
+		result := identifier.IdentifyDirectory(ctx, filepath.Dir(path), repoRoot, singleFileMode, envNames)
 		if result == nil {
 			return projecttype.Unknown
 		}
