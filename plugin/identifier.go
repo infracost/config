@@ -36,6 +36,10 @@ type IdentificationResult struct {
 	DirectoryType   projecttype.Type
 	FileTypes       map[string]projecttype.Type
 	DependencyPaths []string
+	// RawOptions is the seed parse-options blob the plugin returned for a directory project
+	// (always JSON, opaque here). It is handed back to the same plugin's IdentifyEnvironments
+	// for that project, to refine into each environment's blob.
+	RawOptions []byte
 }
 
 // Exclusions are the conditions under which a plugin's projects should be dropped, as declared
@@ -150,6 +154,7 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir, repoRoot string
 				DirectoryType:   pluginType,
 				FileTypes:       nil,
 				DependencyPaths: result.DependencyPaths,
+				RawOptions:      result.RawOptions,
 			}
 		}
 		if len(result.Files) > 0 && (output == nil || output.DirectoryType == projecttype.Unknown) {
@@ -193,7 +198,10 @@ func (i *Identifier) IdentifyDirectory(ctx context.Context, dir, repoRoot string
 // attributedFiles carries the var files the caller has already attributed to this project so the
 // owning plugin can reproduce that attribution rather than re-derive it. It is a Terraform/Terragrunt
 // migration aid; other plugins ignore it.
-func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType projecttype.Type, attributedFiles []AttributedVarFile, envNames []string) ([]Environment, bool, error) {
+//
+// rawOptions is the seed blob the plugin's IdentifyProjects returned for this project root
+// (IdentificationResult.RawOptions), handed back for the plugin to refine.
+func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, projectType projecttype.Type, attributedFiles []AttributedVarFile, rawOptions []byte, envNames []string) ([]Environment, bool, error) {
 	for _, plugin := range i.plugins {
 		pluginType := plugin.ProjectType()
 		if pluginType != projectType {
@@ -212,6 +220,7 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 		result, err := plugin.parser.IdentifyEnvironments(ctx, &pb.IdentifyEnvironmentsRequest{
 			Directory:        dir,
 			AttributedFiles:  pbAttributedFiles,
+			RawOptions:       rawOptions,
 			EnvironmentNames: envNames,
 		})
 		if err != nil {
@@ -244,3 +253,4 @@ func (i *Identifier) IdentifyEnvironments(ctx context.Context, dir string, proje
 
 	return nil, false, nil
 }
+
