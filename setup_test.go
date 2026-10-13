@@ -52,17 +52,6 @@ func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantPr
 	})
 }
 
-// testConfigGenerationPerMode is for cases where the modes genuinely produce different projects.
-func testConfigGenerationPerMode(t *testing.T, dir string, wantProjects map[string][]*config.Project) {
-	for _, mode := range allModes {
-		want, ok := wantProjects[mode]
-		require.True(t, ok, "missing expected projects for mode %q", mode)
-		t.Run(mode, func(t *testing.T) {
-			assertGeneration(t, dir, "", want, modeOpts(mode)...)
-		})
-	}
-}
-
 func assertGeneration(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
 	t.Helper()
 	if template != "" {

@@ -244,30 +244,6 @@ func Generate(
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
 	}
 
-	// if we're not using plugins, fall back to this legacy ciscostacks bolt-on
-	if identifier == nil {
-		stacksProjects, stackNames := autodetect.DetectCiscoStacksProjects(rootDir)
-		if len(stackNames) > 0 {
-			// Filter out autodetected terraform projects under stacks/<name>/
-			// where we've detected cisco stacks layers for that stack.
-			filtered := make([]autodetect.Project, 0, len(projects))
-			for _, p := range projects {
-				rel := p.Path
-				if filepath.IsAbs(rel) {
-					rel, _ = filepath.Rel(rootDir, rel)
-				}
-				if strings.HasPrefix(rel, "stacks"+string(filepath.Separator)) {
-					parts := strings.SplitN(rel, string(filepath.Separator), 3)
-					if len(parts) >= 2 && stackNames[parts[1]] {
-						continue
-					}
-				}
-				filtered = append(filtered, p)
-			}
-			projects = append(filtered, stacksProjects...)
-		}
-	}
-
 	variables := template.Variables{
 		RepoName:            genOptions.RepoName,
 		Branch:              genOptions.Branch,
