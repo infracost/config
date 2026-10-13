@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/infracost/config/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,7 +64,7 @@ func TestReadFileWithSymlinkResolution_Confinement(t *testing.T) {
 // allowed dirs must be refused.
 func TestBuildSubtree_RejectsIntermediateSymlinkEscape(t *testing.T) {
 	repo := symlinkRepo(t)
-	b := newTreeBuilder(nil, repo, &Config{MaxSearchDepth: 10}, false, false, false, repo)
+	b := newTreeBuilder(&plugin.Identifier{}, repo, &Config{MaxSearchDepth: 10}, false, false, false, repo)
 
 	// repo/evil/<dir> resolves under the out-of-repo "outside" directory.
 	_, err := b.buildSubtree(context.Background(), filepath.Join(repo, "evil"), 0, nil)
@@ -82,7 +83,7 @@ func TestBuildSubtree_PreservesRepoRootPath(t *testing.T) {
 	require.NoError(t, os.MkdirAll(repo, 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "main.tf"), []byte("# tf"), 0600))
 
-	b := newTreeBuilder(nil, repo, &Config{MaxSearchDepth: 10}, false, false, false, repo)
+	b := newTreeBuilder(&plugin.Identifier{}, repo, &Config{MaxSearchDepth: 10}, false, false, false, repo)
 
 	root, err := b.build(context.Background())
 	require.NoError(t, err)

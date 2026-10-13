@@ -128,6 +128,11 @@ type AttributedVarFile struct {
 
 // Close terminates every plugin subprocess held by the Identifier. Safe to
 // call once; further use of the Identifier after Close is not supported.
+// Empty reports whether no parser plugins were found.
+func (i *Identifier) Empty() bool {
+	return len(i.plugins) == 0
+}
+
 func (i *Identifier) Close() {
 	for _, p := range i.plugins {
 		p.Close()

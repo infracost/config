@@ -14,50 +14,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Generate runs in two modes: "local" uses config's built-in detection and "plugins" runs against
-// the plugin binaries downloaded by TestMain. Each mode is a subtest named after it.
-const (
-	modeLocal   = "local"
-	modePlugins = "plugins"
-)
-
-var (
-	allModes    = []string{modeLocal, modePlugins}
-	pluginsOnly = []string{modePlugins}
-)
-
-func modeOpts(mode string) []config.GenerationOption {
-	if mode == modePlugins {
-		return []config.GenerationOption{config.WithPluginDir(pluginDir)}
-	}
-	return nil
-}
-
-func inModes(t *testing.T, modes []string, fn func(t *testing.T, opts []config.GenerationOption)) {
-	t.Helper()
-	for _, mode := range modes {
-		t.Run(mode, func(t *testing.T) {
-			fn(t, modeOpts(mode))
-		})
-	}
-}
-
 func testConfigGeneration(t *testing.T, dir string, wantProjects []*config.Project, opts ...config.GenerationOption) {
+	t.Helper()
 	testConfigGenerationWithTemplate(t, dir, "", wantProjects, opts...)
 }
 
 func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
-	inModes(t, allModes, func(t *testing.T, base []config.GenerationOption) {
-		assertGeneration(t, dir, template, wantProjects, append(base, opts...)...)
-	})
-}
-
-// testConfigGenerationPluginsOnly is for cases whose detection only exists in a plugin.
-func testConfigGenerationPluginsOnly(t *testing.T, dir string, wantProjects []*config.Project) {
 	t.Helper()
-	inModes(t, pluginsOnly, func(t *testing.T, opts []config.GenerationOption) {
-		assertGeneration(t, dir, "", wantProjects, opts...)
-	})
+	assertGeneration(t, dir, template, wantProjects, append([]config.GenerationOption{config.WithPluginDir(pluginDir)}, opts...)...)
 }
 
 func assertGeneration(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {

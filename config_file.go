@@ -176,12 +176,12 @@ func WithLoadIdentifier(identifier *plugin.Identifier) LoadOption {
 
 // WithLoadPluginDir makes LoadConfigFile create (and close) a plugin identifier from the given
 // directory so that plugin-provided project types (e.g. kubernetes) can be backfilled. Ignored when
-// WithLoadIdentifier is also supplied.
+// WithLoadIdentifier is also supplied. Without either, the default plugin directory is used.
 func WithLoadPluginDir(dir string) LoadOption {
 	return func(o *loadOptions) { o.pluginDir = dir }
 }
 
-// WithLoadDefaultPluginDir is like WithLoadPluginDir but uses the default plugin directory.
+// Deprecated: LoadConfigFile always uses the default plugin directory when WithLoadPluginDir is not set.
 func WithLoadDefaultPluginDir(useDefault bool) LoadOption {
 	return func(o *loadOptions) { o.defaultPluginDir = useDefault }
 }
@@ -204,7 +204,7 @@ func LoadConfigFile(
 	// a caller-supplied identifier; otherwise create one from the configured plugin dir and close it
 	// when we're done.
 	identifier := loadOpts.identifier
-	if identifier == nil && (loadOpts.defaultPluginDir || loadOpts.pluginDir != "") {
+	if identifier == nil {
 		created, err := plugin.CreateIdentifier(ctx, loadOpts.pluginDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)

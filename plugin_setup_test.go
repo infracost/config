@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/infracost/config"
 )
 
 const (
@@ -46,6 +48,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	pluginDir = dir
+	config.TestPluginDir = dir
 	os.Exit(m.Run())
 }
 

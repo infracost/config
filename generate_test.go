@@ -24,11 +24,9 @@ func Test_Generate_SimpleTFInRoot(t *testing.T) {
 
 func Test_Generate_NoProjects(t *testing.T) {
 	root := NewFilesystem(t)
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
-		require.NoError(t, err)
-		assert.Len(t, generated.Projects, 0)
-	})
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.NoError(t, err)
+	assert.Len(t, generated.Projects, 0)
 }
 
 func Test_Generate_SimpleTFInRootWithTemplate(t *testing.T) {
@@ -5272,17 +5270,15 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 	cdkDir.AddFile("package-lock.json").Content(`{}`)
 	cdkDir.AddFile("package.json").Content(`{}`)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.NotNil(t, generated)
+	require.NoError(t, err)
+	require.NotNil(t, generated)
 
-		require.Len(t, generated.CDK.Projects, 1)
-		require.Equal(t, "cdk-app/cdk.json", generated.CDK.Projects[0].CdkConfigPath)
+	require.Len(t, generated.CDK.Projects, 1)
+	require.Equal(t, "cdk-app/cdk.json", generated.CDK.Projects[0].CdkConfigPath)
 
-		require.Len(t, generated.Projects, 0)
-	})
+	require.Len(t, generated.Projects, 0)
 }
 
 func Test_TerragruntDependenciesTracked(t *testing.T) {
@@ -5297,15 +5293,13 @@ terraform {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg", generated.Projects[0].Path, "the detected project should be at the terragrunt directory (tg)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg", generated.Projects[0].Path, "the detected project should be at the terragrunt directory (tg)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
 }
 
 func Test_TerragruntNestedDependenciesTracked(t *testing.T) {
@@ -5326,16 +5320,14 @@ include {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
 func Test_TerragruntNestedDependenciesTracked_NonDefaultName(t *testing.T) {
@@ -5356,16 +5348,14 @@ include {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/whatever.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/whatever.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
 func Test_TerragruntNestedDependenciesTracked_Template(t *testing.T) {
@@ -5386,16 +5376,14 @@ include {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
 func Test_TerragruntNestedDependenciesTracked_HarcodedPath(t *testing.T) {
@@ -5416,16 +5404,14 @@ include {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/terragrunt.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
 func Test_TerragruntNestedDependenciesTracked_TemplateWithInterpolation(t *testing.T) {
@@ -5446,16 +5432,14 @@ include {
 }
 `)
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
-		assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
-		assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
-		assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/something.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
+	assert.Equal(t, config.ProjectTypeTerragrunt, generated.Projects[0].Type, "the detected project should be a terragrunt one")
+	assert.Equal(t, "tg/nested", generated.Projects[0].Path, "the detected project should be at the nested terragrunt directory (tg/nested)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tf/**", "the detected project should have a dependency on the terraform directory (tf)")
+	assert.Contains(t, generated.Projects[0].DependencyPaths, "tg/something.hcl", "the detected project should have a dependency on the terragrunt directory (tg)")
 }
 
 func Test_Generate_CiscoStacks(t *testing.T) {
@@ -5470,7 +5454,7 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 	layers.AddDirectory("dev")
 	layers.AddDirectory("prod")
 
-	testConfigGenerationPluginsOnly(t, root.Path(), []*config.Project{
+	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
 			Name: "stacks-my-stack-layers-dev",
 			Path: "stacks/my-stack/layers/dev",
@@ -5508,15 +5492,13 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	project1.AddTerraformWithModuleCallToSource("../tf")
 	project1.AddTerraformWithModuleCallToSource("../tf")
 
-	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
-		require.NoError(t, err)
-		require.Len(t, generated.Projects, 1, "should only have one project")
-		assert.Equal(t, config.ProjectTypeTerraform, generated.Projects[0].Type, "the detected project should be a terraform one")
-		assert.Equal(t, 1, len(generated.Projects[0].DependencyPaths), "the detected project should have one dependency")
-		assert.Equal(t, "tf/**", generated.Projects[0].DependencyPaths[0], "the detected project should have a dependency on the terraform directory (tf)")
-	})
+	require.NoError(t, err)
+	require.Len(t, generated.Projects, 1, "should only have one project")
+	assert.Equal(t, config.ProjectTypeTerraform, generated.Projects[0].Type, "the detected project should be a terraform one")
+	assert.Equal(t, 1, len(generated.Projects[0].DependencyPaths), "the detected project should have one dependency")
+	assert.Equal(t, "tf/**", generated.Projects[0].DependencyPaths[0], "the detected project should have a dependency on the terraform directory (tf)")
 }
 
 // A parent directory without a provider or backend must not suppress the projects beneath it.
@@ -5532,20 +5514,18 @@ func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
 	layers := myStack.AddDirectory("layers")
 	layers.AddDirectory("dev")
 
-	inModes(t, pluginsOnly, func(t *testing.T, opts []config.GenerationOption) {
-		generated, err := config.Generate(t.Context(), root.Path(), opts...)
-		require.NoError(t, err)
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.NoError(t, err)
 
-		var cisco []*config.Project
-		for _, project := range generated.Projects {
-			if project.Type == config.ProjectTypeCiscoStacks {
-				cisco = append(cisco, project)
-			}
+	var cisco []*config.Project
+	for _, project := range generated.Projects {
+		if project.Type == config.ProjectTypeCiscoStacks {
+			cisco = append(cisco, project)
 		}
+	}
 
-		require.Len(t, cisco, 1, "the cisco stacks layer should be detected despite the stray stacks/common.tf")
-		assert.Equal(t, "stacks/my-stack/layers/dev", cisco[0].Path)
-	})
+	require.Len(t, cisco, 1, "the cisco stacks layer should be detected despite the stray stacks/common.tf")
+	assert.Equal(t, "stacks/my-stack/layers/dev", cisco[0].Path)
 }
 
 // CloudFormation declares that a terraform/terragrunt ancestor supersedes it, so a template
@@ -5579,8 +5559,7 @@ func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
 	other := root.AddDirectory("other")
 	other.AddTerraformFileWithProviderBlock("main.tf")
 
-	// plugins only: built-in detection still lets the dropped infra/ suppress the template
-	testConfigGenerationPluginsOnly(t, root.Path(), []*config.Project{
+	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
 			Name: "infra-nested-template",
 			Path: "infra/nested/template.yml",
@@ -5609,6 +5588,25 @@ func Test_Generate_TerraformExcludedByTerragrunt(t *testing.T) {
 			Name: "tg",
 			Path: "tg",
 			Type: config.ProjectTypeTerragrunt,
+		},
+	})
+}
+
+// Projects under default-excluded directories (dependency stores, caches, editor metadata) are
+// never detected, while a normal sibling project still is.
+func Test_Generate_PrunesExcludedDirs(t *testing.T) {
+	root := NewFilesystem(t)
+	root.AddDirectory("app").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("node_modules").AddDirectory("some-pkg").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory(".claude").AddDirectory("skills").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("services").AddDirectory("api").AddDirectory("node_modules").AddDirectory("nested").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("venv").AddTerraformFileWithProviderBlock("main.tf")
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "app",
+			Path: "app",
+			Type: config.ProjectTypeTerraform,
 		},
 	})
 }

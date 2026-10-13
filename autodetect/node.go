@@ -98,32 +98,6 @@ func (n *Node) IsCloudFormation() bool {
 	return n.ProjectType == projecttype.CloudFormation
 }
 
-func (n *Node) IsInsideProject() bool {
-	if n == nil {
-		return false
-	}
-	n = n.Parent
-	for n != nil {
-		if n.IsProject() {
-			return true
-		}
-		n = n.Parent
-	}
-	return false
-}
-
-func (n *Node) VisitDescendants(fn func(n *Node) bool) {
-	if fn == nil {
-		return
-	}
-	for _, child := range n.Children {
-		if !fn(child) {
-			return
-		}
-		child.VisitDescendants(fn)
-	}
-}
-
 func (n *Node) WalkInward(fn func(n *Node)) {
 	if fn == nil {
 		return

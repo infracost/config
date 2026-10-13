@@ -100,14 +100,7 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 
 	tree.ModifyTFVarFileEnvs(config)
 
-	// nil (rather than empty) when running without plugins, so filterProjects can tell "no plugin
-	// declared an exclusion" from "there are no plugins to declare one"
-	var exclusions map[projecttype.Type]plugin.Exclusions
-	if options.Identifier != nil {
-		exclusions = options.Identifier.ProjectExclusions()
-	}
-
-	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config, exclusions)
+	projectNodes := filterProjects(tree, tree.FindProjects(), rootDir, config, options.Identifier.ProjectExclusions())
 
 	return expandProjects(ctx, options.Identifier, projectNodes, rootDir, config)
 }
@@ -117,37 +110,8 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 // files, and gathering the module sources needed by downstream filters.
 // Returns the surviving project nodes in walk order.
 //
-// exclusions holds the per-format exclusion conditions the plugins declared; it is nil when
-// running without plugins, in which case the legacy hardcoded rules apply instead.
+// exclusions holds the per-format exclusion conditions the plugins declared.
 func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Config, exclusions map[projecttype.Type]plugin.Exclusions) []*Node {
-	filtered := make([]*Node, 0, len(projectNodes))
-	if exclusions == nil {
-		// exclude terragrunt projects whose children include the parent's terragrunt files. With
-		// plugins this is the terragrunt plugin's call: it does not identify a directory as a
-		// project when a nested unit includes its config file.
-		for _, project := range projectNodes {
-			// we only check if there are terragrunt files, we don;t care if the project type was overridden
-			if !project.Terragrunt.HasFiles {
-				filtered = append(filtered, project)
-				continue
-			}
-			var includes bool
-			project.VisitDescendants(func(child *Node) bool {
-				for _, filename := range []string{"terragrunt.hcl", "terragrunt.hcl.json"} {
-					if slices.Contains(child.Terragrunt.IncludedOutsideTerragruntFiles, filepath.Join(project.AbsolutePath, filename)) {
-						includes = true
-						return false
-					}
-				}
-				return true
-			})
-			if !includes {
-				filtered = append(filtered, project)
-			}
-		}
-		projectNodes = filtered
-	}
-
 	// grab all unique local module sources
 	moduleSources := map[string]struct{}{}
 	tree.WalkOutward(func(n *Node) {
@@ -166,7 +130,7 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 	tree.AssociateTFVarFilesByProjectName(config)
 
 	// skip terraform projects which have been included as a module by another project
-	filtered = make([]*Node, 0, len(projectNodes))
+	filtered := make([]*Node, 0, len(projectNodes))
 	for _, project := range projectNodes {
 		if _, ok := moduleSources[project.AbsolutePath]; !ok {
 			filtered = append(filtered, project)
@@ -192,10 +156,6 @@ func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Co
 			filtered = append(filtered, project)
 		}
 		projectNodes = filtered
-	}
-
-	if exclusions == nil {
-		return applyLegacyExclusions(projectNodes, rootDir, config)
 	}
 
 	return applyExclusions(projectNodes, rootDir, config, exclusions)
@@ -259,40 +219,6 @@ func hasSurvivingAncestorOfType(project *Node, surviving map[string]bool, projec
 	}
 
 	return false
-}
-
-// applyLegacyExclusions is the pre-plugin behaviour, kept for the path that runs without any
-// plugins (where identification also falls back to local file sniffing). Plugins declare these
-// conditions for themselves now - see applyExclusions.
-func applyLegacyExclusions(projectNodes []*Node, rootDir string, config *Config) []*Node {
-	// skip all terraform projects if terragrunt is present in the repo
-	var hasTerragrunt bool
-	for _, project := range projectNodes {
-		if project.IsTerragrunt() {
-			hasTerragrunt = true
-			break
-		}
-	}
-	if hasTerragrunt {
-		filtered := make([]*Node, 0, len(projectNodes))
-		for _, project := range projectNodes {
-			if project.IsTerraform() && !config.shouldIncludeDir(rootDir, project.AbsolutePath) {
-				continue
-			}
-			filtered = append(filtered, project)
-		}
-		projectNodes = filtered
-	}
-
-	// remove cfn projects that lie within a tf/tg project
-	filtered := make([]*Node, 0, len(projectNodes))
-	for _, project := range projectNodes {
-		if (!project.IsTerragrunt() && !project.IsTerraform()) && project.IsInsideProject() {
-			continue
-		}
-		filtered = append(filtered, project)
-	}
-	return filtered
 }
 
 // expandProjects materialises one or more Project entries per surviving node. When the plugin
@@ -414,14 +340,9 @@ func expandProjects(ctx context.Context, identifier *plugin.Identifier, projectN
 			return nil, nil, err
 		}
 
-		var pluginEnvironments []plugin.Environment
-		var authoritative bool
-		if identifier != nil {
-			var err error
-			pluginEnvironments, authoritative, err = identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles, project.RawOptions, config.EnvNames)
-			if err != nil {
-				return nil, nil, err
-			}
+		pluginEnvironments, authoritative, err := identifier.IdentifyEnvironments(ctx, project.AbsolutePath, projectType, attributedFiles, project.RawOptions, config.EnvNames)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		switch {

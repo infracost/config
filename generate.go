@@ -56,12 +56,15 @@ func WithIsProjectProductionFunc(f func(project string) bool) GenerationOption {
 	}
 }
 
+// WithPluginDir sets the directory the parser plugins are loaded from. Without it, Generate uses
+// the default plugin directory.
 func WithPluginDir(dir string) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.PluginDir = dir
 	}
 }
 
+// Deprecated: Generate always uses the default plugin directory when WithPluginDir is not set.
 func WithDefaultPluginDir(useDefault bool) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.DefaultPluginDir = useDefault
@@ -222,14 +225,13 @@ func Generate(
 
 	hasProjectsSection := strings.Contains(genOptions.Template, "\nprojects:") || strings.HasPrefix(genOptions.Template, "projects:")
 
-	var identifier *plugin.Identifier
-	if genOptions.DefaultPluginDir || genOptions.PluginDir != "" {
-		var err error
-		identifier, err = plugin.CreateIdentifier(ctx, genOptions.PluginDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
-		}
-		defer identifier.Close()
+	identifier, err := plugin.CreateIdentifier(ctx, genOptions.PluginDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+	}
+	defer identifier.Close()
+	if identifier.Empty() {
+		return nil, fmt.Errorf("no parser plugins found in the plugin directory")
 	}
 
 	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir,
