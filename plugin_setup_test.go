@@ -51,19 +51,17 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testConfigGenerationWithPlugins is the same as testConfigGeneration but
-// injects WithPluginDir(pluginDir) so config.Generate runs against the
-// downloaded plugin binaries.
-func testConfigGenerationWithPlugins(t *testing.T, dir string, wantProjects []*config.Project, opts ...config.GenerationOption) {
-	opts = append(opts, config.WithPluginDir(pluginDir))
-	testConfigGeneration(t, dir, wantProjects, opts...)
+// testConfigGenerationWithPlugins is testConfigGeneration for cases that only run in plugins mode.
+func testConfigGenerationWithPlugins(t *testing.T, dir string, wantProjects []*config.Project) {
+	testConfigGenerationWithTemplateAndPlugins(t, dir, "", wantProjects)
 }
 
-// testConfigGenerationWithTemplateAndPlugins is the same as
-// testConfigGenerationWithTemplate but injects WithPluginDir(pluginDir).
-func testConfigGenerationWithTemplateAndPlugins(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
-	opts = append(opts, config.WithPluginDir(pluginDir))
-	testConfigGenerationWithTemplate(t, dir, template, wantProjects, opts...)
+// testConfigGenerationWithTemplateAndPlugins is testConfigGenerationWithTemplate for cases that only
+// run in plugins mode.
+func testConfigGenerationWithTemplateAndPlugins(t *testing.T, dir, template string, wantProjects []*config.Project) {
+	inModes(t, pluginsMode, func(t *testing.T, opts []config.GenerationOption) {
+		assertGeneration(t, dir, template, wantProjects, opts...)
+	})
 }
 
 // installTestPlugins downloads the latest release of each required plugin for the current OS/arch
