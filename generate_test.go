@@ -1241,7 +1241,7 @@ func Test_Generate_EnvDirs(t *testing.T) {
 	})
 }
 
-// Test_Generate_CustomEnvNamedDir_Terragrunt covers FIX-453 for the terragrunt plugin.
+// Test_Generate_CustomEnvNamedDir_Terragrunt covers the terragrunt plugin.
 // The project directory "stage-eu" is a custom environment (configured via env_names) whose name
 // the plugin's built-in default matcher would resolve differently ("stage-eu" -> "stage"). Only the
 // org's env matcher knows it is the "stage-eu" environment, so only that environment's var files
@@ -1290,7 +1290,7 @@ autodetect:
 }
 
 // Test_Generate_CustomEnvNamedDir_Terraform is the terraform counterpart of the terragrunt test
-// above: the "stage-eu" project keeps its own environment's var files (FIX-453).
+// above: the "stage-eu" project keeps its own environment's var files.
 func Test_Generate_CustomEnvNamedDir_Terraform(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -5548,7 +5548,7 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	})
 }
 
-// A parent directory without a provider or backend must not suppress the projects beneath it [FIX-592].
+// A parent directory without a provider or backend must not suppress the projects beneath it.
 func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -5596,7 +5596,7 @@ func Test_Generate_CFNInsideTerraformProject(t *testing.T) {
 }
 
 // ...but only a project that survives filtering can supersede anything. A terraform directory
-// dropped for having no provider or backend must not suppress a template below it [FIX-592].
+// dropped for having no provider or backend must not suppress a template below it.
 func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
 	root := NewFilesystem(t)
 
