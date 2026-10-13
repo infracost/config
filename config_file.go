@@ -161,9 +161,8 @@ func fileExists(path string) bool {
 type LoadOption func(*loadOptions)
 
 type loadOptions struct {
-	identifier       *plugin.Identifier
-	pluginDir        string
-	defaultPluginDir bool
+	identifier *plugin.Identifier
+	pluginDir  string
 }
 
 // WithLoadIdentifier supplies an existing plugin identifier for type backfill. The caller retains
@@ -183,7 +182,7 @@ func WithLoadPluginDir(dir string) LoadOption {
 
 // Deprecated: LoadConfigFile always uses the default plugin directory when WithLoadPluginDir is not set.
 func WithLoadDefaultPluginDir(useDefault bool) LoadOption {
-	return func(o *loadOptions) { o.defaultPluginDir = useDefault }
+	return func(*loadOptions) {}
 }
 
 func LoadConfigFile(
@@ -200,19 +199,6 @@ func LoadConfigFile(
 		opt(&loadOpts)
 	}
 
-	// Resolve a plugin identifier so plugin-provided types (e.g. kubernetes) can be backfilled. Prefer
-	// a caller-supplied identifier; otherwise create one from the configured plugin dir and close it
-	// when we're done.
-	identifier := loadOpts.identifier
-	if identifier == nil {
-		created, err := plugin.CreateIdentifier(ctx, loadOpts.pluginDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
-		}
-		defer created.Close()
-		identifier = created
-	}
-
 	// #nosec G304
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -225,9 +211,23 @@ func LoadConfigFile(
 	}
 
 	// A hand-written config whose project entries omit `type:` would otherwise default to terraform
-	// downstream, breaking non-terraform projects. There is no autodetect context here, so resolve
-	// each typeless project by sniffing its path (using plugins when available). See FIX-495.
-	backfillProjectTypes(ctx, repoPath, cfg, nil, identifier, false)
+	// downstream, breaking non-terraform projects. There is no autodetect context here, so ask the
+	// plugins about each typeless project's path. Plugins are only started when one needs it.
+	if hasTypelessProject(cfg) {
+		identifier := loadOpts.identifier
+		if identifier == nil {
+			created, err := plugin.CreateIdentifier(ctx, loadOpts.pluginDir)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+			}
+			defer created.Close()
+			if created.Empty() {
+				return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, created.Dir())
+			}
+			identifier = created
+		}
+		backfillProjectTypes(ctx, repoPath, cfg, nil, identifier, false)
+	}
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {
 		if err := finalizeCDKConfig(repoPath, cfg, false, false); err != nil {
@@ -600,4 +600,13 @@ func applyCDKOverlay(entries []*cdk.ConfigEntry, overlay *cdk.ConfigEntry) {
 			entry.Env = overlay.Env
 		}
 	}
+}
+
+func hasTypelessProject(cfg *Config) bool {
+	for _, project := range cfg.Projects {
+		if project.Type == ProjectTypeUnknown {
+			return true
+		}
+	}
+	return false
 }

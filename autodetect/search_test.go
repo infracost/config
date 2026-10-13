@@ -1,6 +1,7 @@
 package autodetect
 
 import (
+	"context"
 	"testing"
 
 	"github.com/infracost/config/plugin"
@@ -57,4 +58,9 @@ func TestAttributeVarFiles(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestSearchForProjects_RequiresIdentifier(t *testing.T) {
+	_, _, err := SearchForProjects(context.Background(), t.TempDir())
+	require.Error(t, err)
 }

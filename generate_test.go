@@ -1239,7 +1239,6 @@ func Test_Generate_EnvDirs(t *testing.T) {
 	})
 }
 
-// Test_Generate_CustomEnvNamedDir_Terragrunt covers the terragrunt plugin.
 // The project directory "stage-eu" is a custom environment (configured via env_names) whose name
 // the plugin's built-in default matcher would resolve differently ("stage-eu" -> "stage"). Only the
 // org's env matcher knows it is the "stage-eu" environment, so only that environment's var files
@@ -1287,8 +1286,7 @@ autodetect:
 	})
 }
 
-// Test_Generate_CustomEnvNamedDir_Terraform is the terraform counterpart of the terragrunt test
-// above: the "stage-eu" project keeps its own environment's var files.
+// The "stage-eu" terraform project keeps its own environment's var files.
 func Test_Generate_CustomEnvNamedDir_Terraform(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -5546,7 +5544,7 @@ func Test_Generate_CFNInsideTerraformProject(t *testing.T) {
 	})
 }
 
-// ...but only a project that survives filtering can supersede anything. A terraform directory
+// Only a project that survives filtering can supersede another project. A terraform directory
 // dropped for having no provider or backend must not suppress a template below it.
 func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
 	root := NewFilesystem(t)
@@ -5555,7 +5553,7 @@ func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
 	infra.AddTerraformWithNoBackendOrProvider("variables.tf")
 	infra.AddDirectory("nested").AddCFNYAML()
 
-	// a second real terraform project, so infra/ isn't kept by the single-project fallback
+	// a second real terraform project stops infra/ being kept by the single-project fallback
 	other := root.AddDirectory("other")
 	other.AddTerraformFileWithProviderBlock("main.tf")
 
@@ -5609,4 +5607,14 @@ func Test_Generate_PrunesExcludedDirs(t *testing.T) {
 			Type: config.ProjectTypeTerraform,
 		},
 	})
+}
+
+func Test_Generate_ErrorsWithoutParserPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+	root.AddTerraformFileWithProviderBlock("main.tf")
+	pluginDir := t.TempDir()
+
+	_, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.ErrorIs(t, err, config.ErrNoParserPlugins)
+	assert.Contains(t, err.Error(), pluginDir)
 }

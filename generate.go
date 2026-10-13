@@ -66,9 +66,7 @@ func WithPluginDir(dir string) GenerationOption {
 
 // Deprecated: Generate always uses the default plugin directory when WithPluginDir is not set.
 func WithDefaultPluginDir(useDefault bool) GenerationOption {
-	return func(o *GenerationOptions) {
-		o.DefaultPluginDir = useDefault
-	}
+	return func(*GenerationOptions) {}
 }
 
 func WithMaxSearchDepth(depth int) GenerationOption {
@@ -109,7 +107,6 @@ type GenerationOptions struct {
 	BaseBranch             string
 	IsProjectProduction    func(name string) bool
 	PluginDir              string
-	DefaultPluginDir       bool
 	MaxSearchDepth         int
 	IgnorePermissionErrors bool
 	IgnoreHiddenDirs       bool
@@ -125,6 +122,7 @@ var (
 	ErrCDKConfigGenerationFailed = errors.New("failed to generate CDK config")
 	ErrInvalidConfigYAML         = errors.New("invalid config YAML")
 	ErrInvalidConfigTemplate     = errors.New("invalid config template")
+	ErrNoParserPlugins           = errors.New("no parser plugins found")
 )
 
 // backfillProjectTypes fills in the type for any generated project that carries none. A project
@@ -231,7 +229,7 @@ func Generate(
 	}
 	defer identifier.Close()
 	if identifier.Empty() {
-		return nil, fmt.Errorf("no parser plugins found in the plugin directory")
+		return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
 	}
 
 	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir,

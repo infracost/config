@@ -111,10 +111,12 @@ func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin
 
 // PathType returns the single project type detected for a project path, which may be either a
 // directory or a single file (e.g. a CloudFormation template referenced directly). It returns
-// projecttype.Unknown ("") when nothing can be identified. This is the standalone entry config
-// generation uses to backfill a project's type when a config or user template emits a project
-// without one (see FIX-495).
+// projecttype.Unknown ("") when nothing can be identified or identifier is nil. Config generation
+// uses it to backfill a project's type when a config or user template emits a project without one.
 func PathType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
+	if identifier == nil {
+		return projecttype.Unknown
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return projecttype.Unknown
@@ -127,8 +129,11 @@ func PathType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot
 
 // DirectoryType returns the single project type the plugins detect for a directory. It returns
 // projecttype.Unknown ("") when nothing can be identified (including when the directory holds a
-// mix of conflicting file types).
+// mix of conflicting file types) or identifier is nil.
 func DirectoryType(ctx context.Context, identifier *plugin.Identifier, dir, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
+	if identifier == nil {
+		return projecttype.Unknown
+	}
 	return directoryTypeFromResult(identifier.IdentifyDirectory(ctx, dir, repoRoot, singleFileMode, envNames))
 }
 

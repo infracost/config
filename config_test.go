@@ -580,6 +580,35 @@ projects:
 	assert.Equal(t, ProjectTypeTerraform, cfg.Projects[0].Type)
 }
 
+func TestLoadConfigFile_TypedProjectsNeedNoPlugins(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+    type: terraform
+`), 0o600))
+
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(t.TempDir()))
+	require.NoError(t, err)
+	require.Len(t, cfg.Projects, 1)
+	assert.Equal(t, ProjectTypeTerraform, cfg.Projects[0].Type)
+}
+
+func TestLoadConfigFile_TypelessProjectWithoutPluginsErrors(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+`), 0o600))
+
+	_, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(t.TempDir()))
+	require.ErrorIs(t, err, ErrNoParserPlugins)
+}
+
 // TestLoadConfigFile_BackfillsMissingType_FilePath checks the backfill when a project path points at
 // a single file rather than a directory - here a CloudFormation template referenced directly. Without
 // file handling the directory sniff would fail and the project would wrongly default to terraform.

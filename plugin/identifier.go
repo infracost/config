@@ -14,6 +14,7 @@ import (
 )
 
 type Identifier struct {
+	dir     string
 	plugins []*Plugin
 }
 
@@ -30,7 +31,7 @@ func CreateIdentifier(ctx context.Context, pluginDir string) (*Identifier, error
 	slices.SortFunc(plugins, func(a, b *Plugin) int {
 		return int(b.parserConfig.IdentificationPriority) - int(a.parserConfig.IdentificationPriority)
 	})
-	return &Identifier{plugins: plugins}, nil
+	return &Identifier{dir: manager.dir, plugins: plugins}, nil
 }
 
 type IdentificationResult struct {
@@ -62,9 +63,7 @@ func (e Exclusions) IsZero() bool {
 }
 
 // ProjectExclusions returns the exclusion conditions declared by each plugin, keyed by the
-// project type it owns. The returned map is never nil, so callers can use nil to mean "running
-// without plugins" and fall back to their own rules. Types whose plugin declared nothing are
-// absent from the map.
+// project type it owns. Types whose plugin declared nothing are absent from the map.
 func (i *Identifier) ProjectExclusions() map[projecttype.Type]Exclusions {
 	exclusions := make(map[projecttype.Type]Exclusions, len(i.plugins))
 
@@ -126,13 +125,18 @@ type AttributedVarFile struct {
 	IsGlobal bool
 }
 
-// Close terminates every plugin subprocess held by the Identifier. Safe to
-// call once; further use of the Identifier after Close is not supported.
+// Dir is the directory the plugins were loaded from.
+func (i *Identifier) Dir() string {
+	return i.dir
+}
+
 // Empty reports whether no parser plugins were found.
 func (i *Identifier) Empty() bool {
 	return len(i.plugins) == 0
 }
 
+// Close terminates every plugin subprocess held by the Identifier. Safe to
+// call once; further use of the Identifier after Close is not supported.
 func (i *Identifier) Close() {
 	for _, p := range i.plugins {
 		p.Close()

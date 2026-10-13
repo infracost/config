@@ -2,6 +2,7 @@ package autodetect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,6 +73,9 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 	for _, opt := range opts {
 		opt(&options)
 	}
+	if options.Identifier == nil {
+		return nil, nil, errors.New("autodetect: a plugin identifier is required")
+	}
 
 	var rawConfig YAML
 
@@ -109,8 +113,6 @@ func SearchForProjects(ctx context.Context, rootDir string, opts ...SearchOption
 // shouldn't appear in the final output, decorating the tree with linked var
 // files, and gathering the module sources needed by downstream filters.
 // Returns the surviving project nodes in walk order.
-//
-// exclusions holds the per-format exclusion conditions the plugins declared.
 func filterProjects(tree *Node, projectNodes []*Node, rootDir string, config *Config, exclusions map[projecttype.Type]plugin.Exclusions) []*Node {
 	// grab all unique local module sources
 	moduleSources := map[string]struct{}{}
