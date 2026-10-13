@@ -16,8 +16,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/infracost/config"
 )
 
 const (
@@ -49,19 +47,6 @@ func TestMain(m *testing.M) {
 	}
 	pluginDir = dir
 	os.Exit(m.Run())
-}
-
-// testConfigGenerationWithPlugins is testConfigGeneration for cases that only run in plugins mode.
-func testConfigGenerationWithPlugins(t *testing.T, dir string, wantProjects []*config.Project) {
-	testConfigGenerationWithTemplateAndPlugins(t, dir, "", wantProjects)
-}
-
-// testConfigGenerationWithTemplateAndPlugins is testConfigGenerationWithTemplate for cases that only
-// run in plugins mode.
-func testConfigGenerationWithTemplateAndPlugins(t *testing.T, dir, template string, wantProjects []*config.Project) {
-	inModes(t, pluginsMode, func(t *testing.T, opts []config.GenerationOption) {
-		assertGeneration(t, dir, template, wantProjects, opts...)
-	})
 }
 
 // installTestPlugins downloads the latest release of each required plugin for the current OS/arch

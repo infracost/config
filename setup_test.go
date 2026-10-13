@@ -23,7 +23,7 @@ const (
 
 var (
 	allModes    = []string{modeLocal, modePlugins}
-	pluginsMode = []string{modePlugins}
+	pluginsOnly = []string{modePlugins}
 )
 
 func modeOpts(mode string) []config.GenerationOption {
@@ -49,6 +49,14 @@ func testConfigGeneration(t *testing.T, dir string, wantProjects []*config.Proje
 func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
 	inModes(t, allModes, func(t *testing.T, base []config.GenerationOption) {
 		assertGeneration(t, dir, template, wantProjects, append(base, opts...)...)
+	})
+}
+
+// testConfigGenerationPluginsOnly is for cases whose detection only exists in a plugin.
+func testConfigGenerationPluginsOnly(t *testing.T, dir string, wantProjects []*config.Project) {
+	t.Helper()
+	inModes(t, pluginsOnly, func(t *testing.T, opts []config.GenerationOption) {
+		assertGeneration(t, dir, "", wantProjects, opts...)
 	})
 }
 
