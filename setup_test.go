@@ -23,7 +23,7 @@ const (
 
 var (
 	allModes    = []string{modeLocal, modePlugins}
-	pluginsMode = []string{modePlugins}
+	pluginsOnly = []string{modePlugins}
 )
 
 func modeOpts(mode string) []config.GenerationOption {
@@ -52,15 +52,23 @@ func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantPr
 	})
 }
 
+// testConfigGenerationPluginsOnly is for cases whose detection only exists in a plugin.
+func testConfigGenerationPluginsOnly(t *testing.T, dir string, wantProjects []*config.Project) {
+	t.Helper()
+	inModes(t, pluginsOnly, func(t *testing.T, opts []config.GenerationOption) {
+		assertGeneration(t, dir, "", wantProjects, opts...)
+	})
+}
+
 // testConfigGenerationPerMode is for cases where the modes genuinely produce different projects.
-func testConfigGenerationPerMode(t *testing.T, dir string, wantProjects map[string][]*config.Project) {
-	for _, mode := range allModes {
-		want, ok := wantProjects[mode]
-		require.True(t, ok, "missing expected projects for mode %q", mode)
-		t.Run(mode, func(t *testing.T) {
-			assertGeneration(t, dir, "", want, modeOpts(mode)...)
-		})
-	}
+func testConfigGenerationPerMode(t *testing.T, dir string, wantLocal, wantPlugins []*config.Project) {
+	t.Helper()
+	t.Run(modeLocal, func(t *testing.T) {
+		assertGeneration(t, dir, "", wantLocal, modeOpts(modeLocal)...)
+	})
+	t.Run(modePlugins, func(t *testing.T) {
+		assertGeneration(t, dir, "", wantPlugins, modeOpts(modePlugins)...)
+	})
 }
 
 func assertGeneration(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {

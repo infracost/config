@@ -1246,9 +1246,6 @@ func Test_Generate_EnvDirs(t *testing.T) {
 // the plugin's built-in default matcher would resolve differently ("stage-eu" -> "stage"). Only the
 // org's env matcher knows it is the "stage-eu" environment, so only that environment's var files
 // should be attributed to it.
-//
-// terragrunt 0.0.37 does not implement IdentifyEnvironments (the FIX-453 revert), so config falls
-// back to its own env heuristic which honours the org matcher. This test therefore PASSES.
 func Test_Generate_CustomEnvNamedDir_Terragrunt(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -1276,7 +1273,7 @@ autodetect:
     - dev
 `
 
-	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "apps-stage-eu",
 			Path:    "apps/stage-eu",
@@ -1292,16 +1289,8 @@ autodetect:
 	})
 }
 
-// Test_Generate_CustomEnvNamedDir_Terraform is the terraform counterpart of the
-// terragrunt test above and asserts the identical, CORRECT result: the "stage-eu" project keeps its
-// own environment's var files.
-//
-// This is the acceptance test for the terraform plugin fix, so it is RED until that plugin ships.
-// The currently released terraform plugin implements IdentifyEnvironments but still applies its own
-// directory-collapse with a hardcoded default env matcher: it resolves the custom env "stage-eu" to
-// "stage", drops the (correctly attributed) stage-eu.tfvars, and emits an env-less project. It turns
-// GREEN once a terraform plugin ships that makes IdentifyEnvironments a pure echo of the attributed
-// files (infracost/parser#191) - dropping that collapse so config alone owns it (FIX-453).
+// Test_Generate_CustomEnvNamedDir_Terraform is the terraform counterpart of the terragrunt test
+// above: the "stage-eu" project keeps its own environment's var files (FIX-453).
 func Test_Generate_CustomEnvNamedDir_Terraform(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -1328,7 +1317,7 @@ autodetect:
     - dev
 `
 
-	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "apps-stage-eu",
 			Path:    "apps/stage-eu",
@@ -2908,7 +2897,7 @@ autodetect:
     - '**/tg-app'
 `
 
-	testConfigGenerationWithTemplateAndPlugins(t, root.Path(), template, []*config.Project{
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
 		{
 			Name:    "apps-tf-app-dev",
 			Path:    "apps/tf-app",
@@ -5283,8 +5272,6 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 	cdkDir.AddFile("package-lock.json").Content(`{}`)
 	cdkDir.AddFile("package.json").Content(`{}`)
 
-	synthCalled := false
-
 	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
 		generated, err := config.Generate(t.Context(), root.Path(), opts...)
 
@@ -5293,8 +5280,6 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 
 		require.Len(t, generated.CDK.Projects, 1)
 		require.Equal(t, "cdk-app/cdk.json", generated.CDK.Projects[0].CdkConfigPath)
-
-		require.False(t, synthCalled, "Synth should not be called during Generate()")
 
 		require.Len(t, generated.Projects, 0)
 	})
@@ -5486,8 +5471,8 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 	layers.AddDirectory("prod")
 
 	// The two modes name the layers differently and order the dependency paths differently.
-	testConfigGenerationPerMode(t, root.Path(), map[string][]*config.Project{
-		modeLocal: {
+	testConfigGenerationPerMode(t, root.Path(),
+		[]*config.Project{
 			{
 				Name: "stacks/my-stack/layer/dev",
 				Path: "stacks/my-stack/layers/dev",
@@ -5513,7 +5498,7 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 				},
 			},
 		},
-		modePlugins: {
+		[]*config.Project{
 			{
 				Name: "stacks-my-stack-layers-dev",
 				Path: "stacks/my-stack/layers/dev",
@@ -5539,7 +5524,7 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 				},
 			},
 		},
-	})
+	)
 }
 
 func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
@@ -5563,16 +5548,11 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	})
 }
 
-// A stray terraform file in a parent directory used to make that directory look like a
-// terraform project and, through the old "drop non-terraform projects nested in a project"
-// rule, silently discard every project beneath it - even though the parent itself was dropped
-// from the output for having no provider or backend. Plugins now declare their own exclusions,
-// and cisco stacks declares none [FIX-592].
+// A parent directory without a provider or backend must not suppress the projects beneath it [FIX-592].
 func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
 	root := NewFilesystem(t)
 
 	stacksDir := root.AddDirectory("stacks")
-	// the poisoning file: no provider or backend, so stacks/ never appears in the output
 	stacksDir.AddTerraformWithNoBackendOrProvider("common.tf")
 
 	myStack := stacksDir.AddDirectory("my-stack")
@@ -5581,7 +5561,7 @@ func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
 	layers := myStack.AddDirectory("layers")
 	layers.AddDirectory("dev")
 
-	inModes(t, pluginsMode, func(t *testing.T, opts []config.GenerationOption) {
+	inModes(t, allModes, func(t *testing.T, opts []config.GenerationOption) {
 		generated, err := config.Generate(t.Context(), root.Path(), opts...)
 		require.NoError(t, err)
 
@@ -5606,7 +5586,7 @@ func Test_Generate_CFNInsideTerraformProject(t *testing.T) {
 	infra.AddTerraformFileWithProviderBlock("main.tf")
 	infra.AddDirectory("nested").AddCFNYAML()
 
-	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
 			Name: "infra",
 			Path: "infra",
@@ -5624,11 +5604,12 @@ func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
 	infra.AddTerraformWithNoBackendOrProvider("variables.tf")
 	infra.AddDirectory("nested").AddCFNYAML()
 
-	// a second, real terraform project so infra/ isn't kept by the single-project fallback
+	// a second real terraform project, so infra/ isn't kept by the single-project fallback
 	other := root.AddDirectory("other")
 	other.AddTerraformFileWithProviderBlock("main.tf")
 
-	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+	// plugins only: built-in detection still lets the dropped infra/ suppress the template
+	testConfigGenerationPluginsOnly(t, root.Path(), []*config.Project{
 		{
 			Name: "infra-nested-template",
 			Path: "infra/nested/template.yml",
@@ -5652,7 +5633,7 @@ func Test_Generate_TerraformExcludedByTerragrunt(t *testing.T) {
 	tg := root.AddDirectory("tg")
 	tg.AddTerragruntFile()
 
-	testConfigGenerationWithPlugins(t, root.Path(), []*config.Project{
+	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
 			Name: "tg",
 			Path: "tg",
