@@ -5499,7 +5499,6 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	assert.Equal(t, "tf/**", generated.Projects[0].DependencyPaths[0], "the detected project should have a dependency on the terraform directory (tf)")
 }
 
-// A parent directory without a provider or backend must not suppress the projects beneath it.
 func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
 	root := NewFilesystem(t)
 
@@ -5590,8 +5589,6 @@ func Test_Generate_TerraformExcludedByTerragrunt(t *testing.T) {
 	})
 }
 
-// Projects under default-excluded directories (dependency stores, caches, editor metadata) are
-// never detected, while a normal sibling project still is.
 func Test_Generate_PrunesExcludedDirs(t *testing.T) {
 	root := NewFilesystem(t)
 	root.AddDirectory("app").AddTerraformFileWithProviderBlock("main.tf")

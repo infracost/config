@@ -130,11 +130,10 @@ var (
 // (cloudformation, kubernetes, ...) — the common cause being user templates that emit project
 // entries without threading a `type:` through. For each typeless project we prefer the type that
 // autodetection already determined for its path; if the path was not autodetected we sniff the
-// directory directly, and leave the project typeless only when nothing can be identified. See
-// FIX-495.
+// directory directly, and leave the project typeless only when nothing can be identified.
 //
-// projects and identifier may be nil (e.g. when loading a hand-written config file), in which case
-// every typeless project is resolved purely by sniffing its directory.
+// projects is nil when loading a hand-written config file, in which case every typeless project is
+// resolved by asking the plugins about its path.
 func backfillProjectTypes(
 	ctx context.Context,
 	rootDir string,

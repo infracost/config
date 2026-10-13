@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -777,4 +778,17 @@ projects:
 	require.Len(t, cfg.CDK.Projects, 1)
 	require.Len(t, cfg.Projects, 1)
 	require.Equal(t, "existing-terraform", cfg.Projects[0].Name)
+}
+
+func TestLoadConfigFile_TypelessProjectWithEmptySuppliedIdentifierErrors(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+`), 0o600))
+
+	_, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadIdentifier(&plugin.Identifier{}))
+	require.ErrorIs(t, err, ErrNoParserPlugins)
 }

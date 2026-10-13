@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/infracost/config/plugin"
+	projecttype "github.com/infracost/go-proto/pkg/project"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -62,5 +63,10 @@ func TestAttributeVarFiles(t *testing.T) {
 
 func TestSearchForProjects_RequiresIdentifier(t *testing.T) {
 	_, _, err := SearchForProjects(context.Background(), t.TempDir())
-	require.Error(t, err)
+	require.ErrorContains(t, err, "a plugin identifier is required")
+}
+
+func TestPathType_UnknownWithoutIdentifier(t *testing.T) {
+	assert.Equal(t, projecttype.Unknown, PathType(context.Background(), nil, t.TempDir(), t.TempDir(), false, nil))
+	assert.Equal(t, projecttype.Unknown, DirectoryType(context.Background(), nil, t.TempDir(), t.TempDir(), false, nil))
 }

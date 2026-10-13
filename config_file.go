@@ -221,10 +221,10 @@ func LoadConfigFile(
 				return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
 			}
 			defer created.Close()
-			if created.Empty() {
-				return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, created.Dir())
-			}
 			identifier = created
+		}
+		if identifier.Empty() {
+			return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
 		}
 		backfillProjectTypes(ctx, repoPath, cfg, nil, identifier, false)
 	}
