@@ -106,19 +106,17 @@ func isOfCDKOrigin(path string) bool {
 }
 
 func (b *treeBuilder) identifyDirectory(ctx context.Context, dir string) *plugin.IdentificationResult {
-	if b.identifier != nil {
-		return b.identifier.IdentifyDirectory(ctx, dir, b.repoRoot, b.singleFileMode, b.config.EnvNames)
-	}
-
-	return identifyDirectoryLocal(dir, b.singleFileMode)
+	return b.identifier.IdentifyDirectory(ctx, dir, b.repoRoot, b.singleFileMode, b.config.EnvNames)
 }
 
 // PathType returns the single project type detected for a project path, which may be either a
 // directory or a single file (e.g. a CloudFormation template referenced directly). It returns
-// projecttype.Unknown ("") when nothing can be identified. This is the standalone entry config
-// generation uses to backfill a project's type when a config or user template emits a project
-// without one (see FIX-495).
+// projecttype.Unknown ("") when nothing can be identified or identifier is nil. Config generation
+// uses it to backfill a project's type when a config or user template emits a project without one.
 func PathType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
+	if identifier == nil {
+		return projecttype.Unknown
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return projecttype.Unknown
@@ -129,50 +127,27 @@ func PathType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot
 	return fileType(ctx, identifier, path, repoRoot, singleFileMode, envNames)
 }
 
-// DirectoryType returns the single project type detected for a directory, using the plugin
-// identifier when one is available and falling back to local file sniffing otherwise. It returns
+// DirectoryType returns the single project type the plugins detect for a directory. It returns
 // projecttype.Unknown ("") when nothing can be identified (including when the directory holds a
-// mix of conflicting file types).
+// mix of conflicting file types) or identifier is nil.
 func DirectoryType(ctx context.Context, identifier *plugin.Identifier, dir, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
-	var result *plugin.IdentificationResult
-	if identifier != nil {
-		result = identifier.IdentifyDirectory(ctx, dir, repoRoot, singleFileMode, envNames)
-	} else {
-		result = identifyDirectoryLocal(dir, singleFileMode)
+	if identifier == nil {
+		return projecttype.Unknown
 	}
-	return directoryTypeFromResult(result)
+	return directoryTypeFromResult(identifier.IdentifyDirectory(ctx, dir, repoRoot, singleFileMode, envNames))
 }
 
-// fileType identifies the type of a single file. With a plugin configured we ask the identifier
-// about the file's parent directory and pick out this file's entry (falling back to the directory
-// type); otherwise we sniff the file locally.
+// fileType identifies the type of a single file by asking the plugins about its parent directory
+// and picking out this file's entry, falling back to the directory type.
 func fileType(ctx context.Context, identifier *plugin.Identifier, path, repoRoot string, singleFileMode bool, envNames []string) projecttype.Type {
-	if identifier != nil {
-		result := identifier.IdentifyDirectory(ctx, filepath.Dir(path), repoRoot, singleFileMode, envNames)
-		if result == nil {
-			return projecttype.Unknown
-		}
-		if t, ok := result.FileTypes[filepath.Base(path)]; ok && t != projecttype.Unknown {
-			return t
-		}
-		return result.DirectoryType
+	result := identifier.IdentifyDirectory(ctx, filepath.Dir(path), repoRoot, singleFileMode, envNames)
+	if result == nil {
+		return projecttype.Unknown
 	}
-	return localFileType(path)
-}
-
-func localFileType(path string) projecttype.Type {
-	lower := strings.ToLower(path)
-	base := filepath.Base(path)
-	switch {
-	case strings.HasSuffix(lower, ".tf"), strings.HasSuffix(lower, ".tofu"),
-		strings.HasSuffix(lower, ".tf.json"), strings.HasSuffix(lower, ".tofu.json"):
-		return projecttype.Terraform
-	case base == "terragrunt.hcl" || base == "terragrunt.hcl.json":
-		return projecttype.Terragrunt
-	case IdentifyCloudFormationPath(path):
-		return projecttype.CloudFormation
+	if t, ok := result.FileTypes[filepath.Base(path)]; ok && t != projecttype.Unknown {
+		return t
 	}
-	return projecttype.Unknown
+	return result.DirectoryType
 }
 
 // directoryTypeFromResult collapses an IdentificationResult into a single project type. A directory
@@ -196,62 +171,4 @@ func directoryTypeFromResult(result *plugin.IdentificationResult) projecttype.Ty
 		found = t
 	}
 	return found
-}
-
-func identifyDirectoryLocal(dir string, singleFileMode bool) *plugin.IdentificationResult {
-	result := new(plugin.IdentificationResult)
-	result.FileTypes = make(map[string]projecttype.Type)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-
-	dirProjectTypes := make(map[projecttype.Type]struct{})
-
-	for _, entry := range entries {
-
-		if entry.IsDir() {
-			continue
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		switch {
-		case !singleFileMode && (strings.HasSuffix(strings.ToLower(info.Name()), ".tf") ||
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu") ||
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tf.json") ||
-			strings.HasSuffix(strings.ToLower(info.Name()), ".tofu.json")):
-			dirProjectTypes[projecttype.Terraform] = struct{}{}
-		case !singleFileMode && (info.Name() == "terragrunt.hcl" || info.Name() == "terragrunt.hcl.json"):
-			dirProjectTypes[projecttype.Terragrunt] = struct{}{}
-		case len(dirProjectTypes) == 0 && IdentifyCloudFormationPath(filepath.Join(dir, info.Name())):
-			result.FileTypes[entry.Name()] = projecttype.CloudFormation
-		}
-	}
-
-	if len(dirProjectTypes) > 0 {
-		// file types don't matter if we have a directory type
-		result.FileTypes = nil
-		// if multiple project types are detected, we prioritize terraform over terragrunt
-		if len(dirProjectTypes) > 1 {
-			if _, ok := dirProjectTypes[projecttype.Terragrunt]; ok {
-				result.DirectoryType = projecttype.Terragrunt
-			} else if _, ok := dirProjectTypes[projecttype.CiscoStacks]; ok {
-				result.DirectoryType = projecttype.CiscoStacks
-			} else {
-				result.DirectoryType = projecttype.Terraform
-			}
-		} else {
-			for t := range dirProjectTypes {
-				result.DirectoryType = t
-				break
-			}
-		}
-	}
-
-	return result
 }

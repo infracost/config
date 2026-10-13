@@ -17,7 +17,7 @@ func TestPlugins_GenerationSideloadsVarFilesIntoBlob(t *testing.T) {
 	root.AddTerraformFileWithProviderBlock("main.tf")
 	root.AddTFVarsFile("terraform.tfvars")
 
-	cfg, err := config.Generate(t.Context(), root.Path())
+	cfg, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 	require.NoError(t, err)
 	require.Len(t, cfg.Projects, 1)
 

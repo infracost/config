@@ -15,10 +15,17 @@ import (
 )
 
 func testConfigGeneration(t *testing.T, dir string, wantProjects []*config.Project, opts ...config.GenerationOption) {
+	t.Helper()
 	testConfigGenerationWithTemplate(t, dir, "", wantProjects, opts...)
 }
 
 func testConfigGenerationWithTemplate(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
+	t.Helper()
+	assertGeneration(t, dir, template, wantProjects, append([]config.GenerationOption{config.WithPluginDir(pluginDir)}, opts...)...)
+}
+
+func assertGeneration(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
+	t.Helper()
 	if template != "" {
 		opts = append(opts, config.WithTemplate(template))
 	}

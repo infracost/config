@@ -24,7 +24,7 @@ func Test_Generate_SimpleTFInRoot(t *testing.T) {
 
 func Test_Generate_NoProjects(t *testing.T) {
 	root := NewFilesystem(t)
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 	require.NoError(t, err)
 	assert.Len(t, generated.Projects, 0)
 }
@@ -1232,6 +1232,96 @@ func Test_Generate_EnvDirs(t *testing.T) {
 				VarFiles: []string{
 					"../../variables/defaults.tfvars",
 					"../../variables/stag/bop.tfvars",
+				},
+			},
+			Type: "terraform",
+		},
+	})
+}
+
+// The project directory "stage-eu" is a custom environment (configured via env_names) whose name
+// the plugin's built-in default matcher would resolve differently ("stage-eu" -> "stage"). Only the
+// org's env matcher knows it is the "stage-eu" environment, so only that environment's var files
+// should be attributed to it.
+func Test_Generate_CustomEnvNamedDir_Terragrunt(t *testing.T) {
+	root := NewFilesystem(t)
+
+	/*
+		apps/
+		  stage-eu/          (project dir; custom env "stage-eu")
+		    terragrunt.hcl
+		  envs/
+		    stage-eu.tfvars
+		    dev.tfvars
+		    default.tfvars
+	*/
+	appsDir := root.AddDirectory("apps")
+	appsDir.AddDirectory("stage-eu").AddTerragruntFile()
+	envsDir := appsDir.AddDirectory("envs")
+	envsDir.AddTFVarsFile("stage-eu.tfvars")
+	envsDir.AddTFVarsFile("dev.tfvars")
+	envsDir.AddTFVarsFile("default.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  link_tfvars_to_terragrunt: true
+  env_names:
+    - stage-eu
+    - dev
+`
+
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-stage-eu",
+			Path:    "apps/stage-eu",
+			EnvName: "stage-eu",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/default.tfvars",
+					"../envs/stage-eu.tfvars",
+				},
+			},
+			Type: "terragrunt",
+		},
+	})
+}
+
+// The "stage-eu" terraform project keeps its own environment's var files.
+func Test_Generate_CustomEnvNamedDir_Terraform(t *testing.T) {
+	root := NewFilesystem(t)
+
+	/*
+		apps/
+		  stage-eu/          (project dir; custom env "stage-eu")
+		    main.tf
+		  envs/
+		    stage-eu.tfvars
+		    dev.tfvars
+		    default.tfvars
+	*/
+	appsDir := root.AddDirectory("apps")
+	appsDir.AddDirectory("stage-eu").AddTerraformFileWithProviderBlock("main.tf")
+	envsDir := appsDir.AddDirectory("envs")
+	envsDir.AddTFVarsFile("stage-eu.tfvars")
+	envsDir.AddTFVarsFile("dev.tfvars")
+	envsDir.AddTFVarsFile("default.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  env_names:
+    - stage-eu
+    - dev
+`
+
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-stage-eu",
+			Path:    "apps/stage-eu",
+			EnvName: "stage-eu",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/default.tfvars",
+					"../envs/stage-eu.tfvars",
 				},
 			},
 			Type: "terraform",
@@ -2759,6 +2849,97 @@ autodetect:
 		{
 			Name: "apps-foo",
 			Path: "apps/foo",
+			Type: "terragrunt",
+		},
+	})
+}
+
+func Test_Generate_TerragruntTerraformSharedTfvars(t *testing.T) {
+	/*
+		A Terraform project and a tfvars-linking Terragrunt project sit as siblings
+		under apps/, sharing a sibling envs/ tfvars directory:
+
+		apps/
+		├── tf-app/   main.tf
+		├── tg-app/   terragrunt.hcl
+		└── envs/
+		    ├── dev.tfvars
+		    └── prod.tfvars
+
+		With link_tfvars_to_terragrunt enabled, both project types can consume the
+		shared var files, so this exercises the cross-type (Terraform + Terragrunt)
+		var-file attribution that runs as a single pass over both types. Both projects
+		get the same dev/prod split from the shared envs/ directory.
+
+		NOTE: both projects are forced to survive via include_dirs. By default a
+		standalone Terraform project is dropped from any scan that also contains a
+		Terragrunt project (the same reason the Terraform project in
+		Test_Generate_TerragruntAndTerraformMixed needs an include_dirs
+		entry), which would otherwise prevent the cross-type contention from arising.
+	*/
+	root := NewFilesystem(t)
+	apps := root.AddDirectory("apps")
+	apps.AddDirectory("tf-app").AddTerraformFileWithProviderBlock("main.tf")
+	apps.AddDirectory("tg-app").AddTerragruntFile()
+	envs := apps.AddDirectory("envs")
+	envs.AddTFVarsFile("dev.tfvars")
+	envs.AddTFVarsFile("prod.tfvars")
+
+	template := `version: 0.1
+autodetect:
+  link_tfvars_to_terragrunt: true
+  include_dirs:
+    - '**/tf-app'
+    - '**/tg-app'
+`
+
+	testConfigGenerationWithTemplate(t, root.Path(), template, []*config.Project{
+		{
+			Name:    "apps-tf-app-dev",
+			Path:    "apps/tf-app",
+			EnvName: "dev",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/dev.tfvars",
+				},
+				Workspace: "dev",
+			},
+			Type: "terraform",
+		},
+		{
+			Name:    "apps-tf-app-prod",
+			Path:    "apps/tf-app",
+			EnvName: "prod",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/prod.tfvars",
+				},
+				Workspace: "prod",
+			},
+			Type: "terraform",
+		},
+		{
+			Name:    "apps-tg-app-dev",
+			Path:    "apps/tg-app",
+			EnvName: "dev",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/dev.tfvars",
+				},
+				Workspace: "dev",
+			},
+			Type: "terragrunt",
+		},
+		{
+			Name:    "apps-tg-app-prod",
+			Path:    "apps/tg-app",
+			EnvName: "prod",
+			Terraform: config.ProjectTerraform{
+				VarFiles: []string{
+					"../envs/prod.tfvars",
+				},
+				Workspace: "prod",
+			},
 			Type: "terragrunt",
 		},
 	})
@@ -5087,17 +5268,13 @@ func Test_Generate_CDK_DetectsAppsButDoesNotSynth(t *testing.T) {
 	cdkDir.AddFile("package-lock.json").Content(`{}`)
 	cdkDir.AddFile("package.json").Content(`{}`)
 
-	synthCalled := false
-
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.NotNil(t, generated)
 
 	require.Len(t, generated.CDK.Projects, 1)
 	require.Equal(t, "cdk-app/cdk.json", generated.CDK.Projects[0].CdkConfigPath)
-
-	require.False(t, synthCalled, "Synth should not be called during Generate()")
 
 	require.Len(t, generated.Projects, 0)
 }
@@ -5114,7 +5291,7 @@ terraform {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5141,7 +5318,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5169,7 +5346,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5197,7 +5374,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5225,7 +5402,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5253,7 +5430,7 @@ include {
 }
 `)
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have the Terragrunt project")
@@ -5277,27 +5454,27 @@ func Test_Generate_CiscoStacks(t *testing.T) {
 
 	testConfigGeneration(t, root.Path(), []*config.Project{
 		{
-			Name: "stacks/my-stack/layer/dev",
+			Name: "stacks-my-stack-layers-dev",
 			Path: "stacks/my-stack/layers/dev",
 			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
-				"stacks/my-stack/base/**",
-				"stacks/my-stack/*.tfvars.jinja",
+				"environments/dev/**",
 				"stacks/*.tf",
 				"stacks/*.tfvars.jinja",
-				"environments/dev/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/my-stack/base/**",
 			},
 		},
 		{
-			Name: "stacks/my-stack/layer/prod",
+			Name: "stacks-my-stack-layers-prod",
 			Path: "stacks/my-stack/layers/prod",
 			Type: config.ProjectTypeCiscoStacks,
 			DependencyPaths: []string{
-				"stacks/my-stack/base/**",
-				"stacks/my-stack/*.tfvars.jinja",
+				"environments/prod/**",
 				"stacks/*.tf",
 				"stacks/*.tfvars.jinja",
-				"environments/prod/**",
+				"stacks/my-stack/*.tfvars.jinja",
+				"stacks/my-stack/base/**",
 			},
 		},
 	})
@@ -5313,11 +5490,128 @@ func Test_TerraformDuplicateDependenciesRemoved(t *testing.T) {
 	project1.AddTerraformWithModuleCallToSource("../tf")
 	project1.AddTerraformWithModuleCallToSource("../tf")
 
-	generated, err := config.Generate(t.Context(), root.Path())
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
 
 	require.NoError(t, err)
 	require.Len(t, generated.Projects, 1, "should only have one project")
 	assert.Equal(t, config.ProjectTypeTerraform, generated.Projects[0].Type, "the detected project should be a terraform one")
 	assert.Equal(t, 1, len(generated.Projects[0].DependencyPaths), "the detected project should have one dependency")
 	assert.Equal(t, "tf/**", generated.Projects[0].DependencyPaths[0], "the detected project should have a dependency on the terraform directory (tf)")
+}
+
+func Test_Generate_CiscoStacksUnderTerraformDir(t *testing.T) {
+	root := NewFilesystem(t)
+
+	stacksDir := root.AddDirectory("stacks")
+	stacksDir.AddTerraformWithNoBackendOrProvider("common.tf")
+
+	myStack := stacksDir.AddDirectory("my-stack")
+	base := myStack.AddDirectory("base")
+	base.AddTerraformFileWithProviderBlock("main.tf")
+	layers := myStack.AddDirectory("layers")
+	layers.AddDirectory("dev")
+
+	generated, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.NoError(t, err)
+
+	var cisco []*config.Project
+	for _, project := range generated.Projects {
+		if project.Type == config.ProjectTypeCiscoStacks {
+			cisco = append(cisco, project)
+		}
+	}
+
+	require.Len(t, cisco, 1, "the cisco stacks layer should be detected despite the stray stacks/common.tf")
+	assert.Equal(t, "stacks/my-stack/layers/dev", cisco[0].Path)
+}
+
+// CloudFormation declares that a terraform/terragrunt ancestor supersedes it, so a template
+// nested inside a real terraform project is still treated as an artifact of that project.
+func Test_Generate_CFNInsideTerraformProject(t *testing.T) {
+	root := NewFilesystem(t)
+
+	infra := root.AddDirectory("infra")
+	infra.AddTerraformFileWithProviderBlock("main.tf")
+	infra.AddDirectory("nested").AddCFNYAML()
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "infra",
+			Path: "infra",
+			Type: config.ProjectTypeTerraform,
+		},
+	})
+}
+
+// Only a project that survives filtering can supersede another project. A terraform directory
+// dropped for having no provider or backend must not suppress a template below it.
+func Test_Generate_CFNInsideDroppedTerraformDir(t *testing.T) {
+	root := NewFilesystem(t)
+
+	infra := root.AddDirectory("infra")
+	infra.AddTerraformWithNoBackendOrProvider("variables.tf")
+	infra.AddDirectory("nested").AddCFNYAML()
+
+	// a second real terraform project stops infra/ being kept by the single-project fallback
+	other := root.AddDirectory("other")
+	other.AddTerraformFileWithProviderBlock("main.tf")
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "infra-nested-template",
+			Path: "infra/nested/template.yml",
+			Type: config.ProjectTypeCloudFormation,
+		},
+		{
+			Name: "other",
+			Path: "other",
+			Type: config.ProjectTypeTerraform,
+		},
+	})
+}
+
+// Terraform declares that terragrunt anywhere in the repo supersedes it.
+func Test_Generate_TerraformExcludedByTerragrunt(t *testing.T) {
+	root := NewFilesystem(t)
+
+	tf := root.AddDirectory("tf")
+	tf.AddTerraformFileWithProviderBlock("main.tf")
+
+	tg := root.AddDirectory("tg")
+	tg.AddTerragruntFile()
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "tg",
+			Path: "tg",
+			Type: config.ProjectTypeTerragrunt,
+		},
+	})
+}
+
+func Test_Generate_PrunesExcludedDirs(t *testing.T) {
+	root := NewFilesystem(t)
+	root.AddDirectory("app").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("node_modules").AddDirectory("some-pkg").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory(".claude").AddDirectory("skills").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("services").AddDirectory("api").AddDirectory("node_modules").AddDirectory("nested").AddTerraformFileWithProviderBlock("main.tf")
+	root.AddDirectory("venv").AddTerraformFileWithProviderBlock("main.tf")
+
+	testConfigGeneration(t, root.Path(), []*config.Project{
+		{
+			Name: "app",
+			Path: "app",
+			Type: config.ProjectTypeTerraform,
+		},
+	})
+}
+
+func Test_Generate_ErrorsWithoutParserPlugins(t *testing.T) {
+	root := NewFilesystem(t)
+	root.AddTerraformFileWithProviderBlock("main.tf")
+	pluginDir := t.TempDir()
+
+	_, err := config.Generate(t.Context(), root.Path(), config.WithPluginDir(pluginDir))
+	require.ErrorIs(t, err, config.ErrNoParserPlugins)
+	assert.Contains(t, err.Error(), pluginDir)
 }

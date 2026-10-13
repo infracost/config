@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/infracost/config/cdk"
+	"github.com/infracost/config/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -301,7 +302,7 @@ projects:
 				}()
 			}
 
-			c, err := LoadConfigFile(t.Context(), path, tmp)
+			c, err := LoadConfigFile(t.Context(), path, tmp, WithLoadPluginDir(TestPluginDir))
 			if tt.error != nil {
 				require.Error(t, tt.error, err)
 			} else {
@@ -319,7 +320,7 @@ func TestGenerateFillsCDKBlockWhenFeatureFlagEnabled(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tmp, "foo"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -340,7 +341,7 @@ func TestGenerateDetectsCDK(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp)
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir))
 	require.NoError(t, err)
 	require.NotEmpty(t, cfg.CDK.Projects)
 }
@@ -352,7 +353,7 @@ func TestGenerateAutodetectsEmptyCDKBlock(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.2
 cdk:
 `))
 	require.NoError(t, err)
@@ -550,7 +551,7 @@ projects:
 	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(TestPluginDir))
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -574,10 +575,39 @@ projects:
     name: my-project
 `), 0o600))
 
-	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(TestPluginDir))
 	require.NoError(t, err)
 	require.Len(t, cfg.Projects, 1)
 	assert.Equal(t, ProjectTypeTerraform, cfg.Projects[0].Type)
+}
+
+func TestLoadConfigFile_TypedProjectsNeedNoPlugins(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+    type: terraform
+`), 0o600))
+
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(t.TempDir()))
+	require.NoError(t, err)
+	require.Len(t, cfg.Projects, 1)
+	assert.Equal(t, ProjectTypeTerraform, cfg.Projects[0].Type)
+}
+
+func TestLoadConfigFile_TypelessProjectWithoutPluginsErrors(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+`), 0o600))
+
+	_, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(t.TempDir()))
+	require.ErrorIs(t, err, ErrNoParserPlugins)
 }
 
 // TestLoadConfigFile_BackfillsMissingType_FilePath checks the backfill when a project path points at
@@ -600,7 +630,7 @@ projects:
     name: my-cfn
 `), 0o600))
 
-	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(TestPluginDir))
 	require.NoError(t, err)
 	require.Len(t, cfg.Projects, 1)
 	assert.Equal(t, ProjectTypeCloudFormation, cfg.Projects[0].Type)
@@ -621,7 +651,7 @@ projects:
     type: terragrunt
 `), 0o600))
 
-	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(TestPluginDir))
 	require.NoError(t, err)
 	require.Len(t, cfg.Projects, 1)
 	assert.Equal(t, ProjectTypeTerragrunt, cfg.Projects[0].Type)
@@ -636,7 +666,7 @@ func TestGenerate_CDKDefaults_WithTemplate_DefaultsOnly(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -656,7 +686,7 @@ func TestGenerate_CDKDefaults_WithTemplate_PreservesLocalValues(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -683,7 +713,7 @@ func TestGenerate_CDKDefaults_WithTemplate_PartialOverride(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.2
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.2
 cdk_defaults:
   context:
     org: acme
@@ -710,7 +740,7 @@ func TestGenerate_CDKDefaults_WithTemplate_RepoConfigNoCDKBlock(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "foo", "cdk.json"), []byte(`{"app":"ts-node"}`), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "package.json"), []byte("{}"), 0o600))
 
-	cfg, err := Generate(t.Context(), tmp, WithTemplate(`version: 0.3
+	cfg, err := Generate(t.Context(), tmp, WithPluginDir(TestPluginDir), WithTemplate(`version: 0.3
 cdk:
   defaults:
     context:
@@ -739,7 +769,7 @@ projects:
 	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := LoadConfigFile(t.Context(), configPath, tmp)
+	cfg, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadPluginDir(TestPluginDir))
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -748,4 +778,17 @@ projects:
 	require.Len(t, cfg.CDK.Projects, 1)
 	require.Len(t, cfg.Projects, 1)
 	require.Equal(t, "existing-terraform", cfg.Projects[0].Name)
+}
+
+func TestLoadConfigFile_TypelessProjectWithEmptySuppliedIdentifierErrors(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`version: 0.1
+projects:
+  - path: tf
+    name: my-project
+`), 0o600))
+
+	_, err := LoadConfigFile(t.Context(), configPath, tmp, WithLoadIdentifier(&plugin.Identifier{}))
+	require.ErrorIs(t, err, ErrNoParserPlugins)
 }

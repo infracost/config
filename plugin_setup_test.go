@@ -48,22 +48,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	pluginDir = dir
+	config.TestPluginDir = dir
 	os.Exit(m.Run())
-}
-
-// testConfigGenerationWithPlugins is the same as testConfigGeneration but
-// injects WithPluginDir(pluginDir) so config.Generate runs against the
-// downloaded plugin binaries.
-func testConfigGenerationWithPlugins(t *testing.T, dir string, wantProjects []*config.Project, opts ...config.GenerationOption) {
-	opts = append(opts, config.WithPluginDir(pluginDir))
-	testConfigGeneration(t, dir, wantProjects, opts...)
-}
-
-// testConfigGenerationWithTemplateAndPlugins is the same as
-// testConfigGenerationWithTemplate but injects WithPluginDir(pluginDir).
-func testConfigGenerationWithTemplateAndPlugins(t *testing.T, dir, template string, wantProjects []*config.Project, opts ...config.GenerationOption) {
-	opts = append(opts, config.WithPluginDir(pluginDir))
-	testConfigGenerationWithTemplate(t, dir, template, wantProjects, opts...)
 }
 
 // installTestPlugins downloads the latest release of each required plugin for the current OS/arch

@@ -56,16 +56,17 @@ func WithIsProjectProductionFunc(f func(project string) bool) GenerationOption {
 	}
 }
 
+// WithPluginDir sets the directory the parser plugins are loaded from. Without it, Generate uses
+// the default plugin directory.
 func WithPluginDir(dir string) GenerationOption {
 	return func(o *GenerationOptions) {
 		o.PluginDir = dir
 	}
 }
 
+// Deprecated: Generate always uses the default plugin directory when WithPluginDir is not set.
 func WithDefaultPluginDir(useDefault bool) GenerationOption {
-	return func(o *GenerationOptions) {
-		o.DefaultPluginDir = useDefault
-	}
+	return func(*GenerationOptions) {}
 }
 
 func WithMaxSearchDepth(depth int) GenerationOption {
@@ -106,7 +107,6 @@ type GenerationOptions struct {
 	BaseBranch             string
 	IsProjectProduction    func(name string) bool
 	PluginDir              string
-	DefaultPluginDir       bool
 	MaxSearchDepth         int
 	IgnorePermissionErrors bool
 	IgnoreHiddenDirs       bool
@@ -122,6 +122,7 @@ var (
 	ErrCDKConfigGenerationFailed = errors.New("failed to generate CDK config")
 	ErrInvalidConfigYAML         = errors.New("invalid config YAML")
 	ErrInvalidConfigTemplate     = errors.New("invalid config template")
+	ErrNoParserPlugins           = errors.New("no parser plugins found")
 )
 
 // backfillProjectTypes fills in the type for any generated project that carries none. A project
@@ -129,11 +130,10 @@ var (
 // (cloudformation, kubernetes, ...) — the common cause being user templates that emit project
 // entries without threading a `type:` through. For each typeless project we prefer the type that
 // autodetection already determined for its path; if the path was not autodetected we sniff the
-// directory directly, and leave the project typeless only when nothing can be identified. See
-// FIX-495.
+// directory directly, and leave the project typeless only when nothing can be identified.
 //
-// projects and identifier may be nil (e.g. when loading a hand-written config file), in which case
-// every typeless project is resolved purely by sniffing its directory.
+// projects is nil when loading a hand-written config file, in which case every typeless project is
+// resolved by asking the plugins about its path.
 func backfillProjectTypes(
 	ctx context.Context,
 	rootDir string,
@@ -222,14 +222,13 @@ func Generate(
 
 	hasProjectsSection := strings.Contains(genOptions.Template, "\nprojects:") || strings.HasPrefix(genOptions.Template, "projects:")
 
-	var identifier *plugin.Identifier
-	if genOptions.DefaultPluginDir || genOptions.PluginDir != "" {
-		var err error
-		identifier, err = plugin.CreateIdentifier(ctx, genOptions.PluginDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
-		}
-		defer identifier.Close()
+	identifier, err := plugin.CreateIdentifier(ctx, genOptions.PluginDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+	}
+	defer identifier.Close()
+	if identifier.Empty() {
+		return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
 	}
 
 	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir,
@@ -242,30 +241,6 @@ func Generate(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate projects: %w", err)
-	}
-
-	// if we're not using plugins, fall back to this legacy ciscostacks bolt-on
-	if identifier == nil {
-		stacksProjects, stackNames := autodetect.DetectCiscoStacksProjects(rootDir)
-		if len(stackNames) > 0 {
-			// Filter out autodetected terraform projects under stacks/<name>/
-			// where we've detected cisco stacks layers for that stack.
-			filtered := make([]autodetect.Project, 0, len(projects))
-			for _, p := range projects {
-				rel := p.Path
-				if filepath.IsAbs(rel) {
-					rel, _ = filepath.Rel(rootDir, rel)
-				}
-				if strings.HasPrefix(rel, "stacks"+string(filepath.Separator)) {
-					parts := strings.SplitN(rel, string(filepath.Separator), 3)
-					if len(parts) >= 2 && stackNames[parts[1]] {
-						continue
-					}
-				}
-				filtered = append(filtered, p)
-			}
-			projects = append(filtered, stacksProjects...)
-		}
 	}
 
 	variables := template.Variables{
