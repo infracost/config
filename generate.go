@@ -166,7 +166,7 @@ func backfillProjectTypes(
 		}
 
 		if t, ok := detected[relProjectPath(rootDir, project.Path)]; ok {
-			project.Type = t
+			retypeProject(project, t)
 			continue
 		}
 
@@ -177,9 +177,23 @@ func backfillProjectTypes(
 			path = filepath.Join(rootDir, path)
 		}
 		if t := autodetect.PathType(ctx, identifier, path, rootDir, singleFileMode, nil); t != ProjectTypeUnknown {
-			project.Type = t
+			retypeProject(project, t)
 		}
 	}
+}
+
+// retypeProject sets a typeless project's type and moves its terraform blob, stored under the
+// untyped "terraform" key, to the new type's key.
+func retypeProject(p *Project, t ProjectType) {
+	p.Type = t
+	key := terraformBlobKey(t)
+	if IsTerraformFamily(t) && key != string(ProjectTypeTerraform) {
+		if moved := p.Plugins[string(ProjectTypeTerraform)]; moved != nil {
+			setProjectPlugin(p, key, mergePluginBlobs(moved, p.Plugins[key]))
+			delete(p.Plugins, string(ProjectTypeTerraform))
+		}
+	}
+	mirrorBlobToDeprecated(p)
 }
 
 // relProjectPath normalizes a project path to a cleaned repo-relative key so rendered project paths
