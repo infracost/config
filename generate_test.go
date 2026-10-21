@@ -5615,3 +5615,104 @@ func Test_Generate_ErrorsWithoutParserPlugins(t *testing.T) {
 	require.ErrorIs(t, err, config.ErrNoParserPlugins)
 	assert.Contains(t, err.Error(), pluginDir)
 }
+
+func Test_Generate_ProjectsSectionFromRenderedTemplate(t *testing.T) {
+	detected := []*config.Project{
+		{Name: "apps-a", Path: "apps/a", Type: "terraform"},
+		{Name: "apps-b", Path: "apps/b", Type: "terraform"},
+	}
+	onlyA := []*config.Project{
+		{Name: "only-a", Path: "apps/a", Type: "terraform"},
+	}
+
+	tests := []struct {
+		name     string
+		template string
+		repoName string
+		want     []*config.Project
+	}{
+		{
+			name: "conditional projects not rendered",
+			template: `version: 0.1
+{{- if eq .RepoName "special" }}
+projects:
+  - path: apps/a
+    name: only-a
+{{- end }}
+`,
+			want: detected,
+		},
+		{
+			name: "conditional projects rendered",
+			template: `version: 0.1
+{{- if eq .RepoName "special" }}
+projects:
+  - path: apps/a
+    name: only-a
+{{- end }}
+`,
+			repoName: "special",
+			want:     onlyA,
+		},
+		{
+			name: "projects only in template comment",
+			template: `version: 0.1
+{{/*
+projects:
+  - path: apps/a
+*/}}
+`,
+			want: detected,
+		},
+		{
+			name: "projects mid-line",
+			template: `version: 0.1
+{{ if true }}projects:
+  - path: apps/a
+    name: only-a
+{{ end }}
+`,
+			want: onlyA,
+		},
+		{
+			name: "projects in if and else",
+			template: `version: 0.1
+{{- if eq .RepoName "special" }}
+projects:
+  - path: apps/b
+    name: only-b
+{{- else }}
+projects:
+  - path: apps/a
+    name: only-a
+{{- end }}
+`,
+			want: onlyA,
+		},
+		{
+			name:     "no projects key",
+			template: "version: 0.1\n",
+			want:     detected,
+		},
+		{
+			name:     "empty projects list",
+			template: "version: 0.1\nprojects: []\n",
+			want:     []*config.Project{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := NewFilesystem(t)
+			apps := root.AddDirectory("apps")
+			apps.AddDirectory("a").AddFile("main.tf")
+			apps.AddDirectory("b").AddFile("main.tf")
+
+			repoName := tt.repoName
+			if repoName == "" {
+				repoName = "other"
+			}
+			testConfigGenerationWithTemplate(t, root.Path(), tt.template, tt.want, config.WithRepoName(repoName))
+		})
+	}
+}
