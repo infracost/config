@@ -26,6 +26,14 @@ type TerraformRegexSource struct {
 	Replace string `yaml:"replace"`
 }
 
+// Terraform plugin options for regex source rules. regex_source_map is the map users write and older
+// parsers read. regex_source_rules is the same rules as a list in file order, for newer parsers. It is
+// never written to the config file.
+const (
+	regexSourceMapKey   = "regex_source_map"
+	regexSourceRulesKey = "regex_source_rules"
+)
+
 // validate checks the config is well-formed. baseDir is the directory project
 // paths are resolved against (the repo root); when it is non-empty, project
 // paths are confined to it using the symlink-aware security check.

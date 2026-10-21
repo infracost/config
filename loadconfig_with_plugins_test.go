@@ -89,6 +89,9 @@ projects:
 			wantPlugin: map[string]any{
 				"vars":             map[string]any{"x": 1},
 				"regex_source_map": map[string]any{"^git::foo": "../../mod"},
+				"regex_source_rules": []any{
+					map[string]any{"match": "^git::foo", "replace": "../../mod"},
+				},
 			},
 		},
 		{

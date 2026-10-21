@@ -323,6 +323,7 @@ func toConfigFileProject(p *Project) (*configfile.Project, error) {
 		if err := n.Encode(blob); err != nil {
 			return nil, fmt.Errorf("%w: encode blob %q: %s", ErrInvalidConfigYAML, key, err)
 		}
+		writeRegexSourceRules(&n)
 		mergeHeading(&fp.Headings, headingForBlobKey(key), n)
 	}
 
@@ -375,8 +376,56 @@ func splitMapping(node yaml.Node, keys map[string]bool) (yaml.Node, map[string]a
 			return kept, nil, err
 		}
 		rest[k.Value] = val
+		if k.Value == regexSourceMapKey && v.Kind == yaml.MappingNode {
+			rest[regexSourceRulesKey] = regexSourceRulesFromMapping(v)
+		}
 	}
 	return kept, rest, nil
+}
+
+// regexSourceRulesFromMapping lists the rules of a regex_source_map mapping in file order.
+func regexSourceRulesFromMapping(node *yaml.Node) []any {
+	rules := make([]any, 0, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		rules = append(rules, map[string]any{"match": node.Content[i].Value, "replace": node.Content[i+1].Value})
+	}
+	return rules
+}
+
+// writeRegexSourceRules drops regex_source_rules from a blob node and writes regex_source_map in its
+// order, so the config file keeps the user's order and never shows the internal key.
+func writeRegexSourceRules(blob *yaml.Node) {
+	rulesIdx, mapIdx := -1, -1
+	for i := 0; i+1 < len(blob.Content); i += 2 {
+		switch blob.Content[i].Value {
+		case regexSourceRulesKey:
+			rulesIdx = i
+		case regexSourceMapKey:
+			mapIdx = i
+		}
+	}
+	if rulesIdx < 0 {
+		return
+	}
+	rules := blob.Content[rulesIdx+1]
+	blob.Content = append(blob.Content[:rulesIdx], blob.Content[rulesIdx+2:]...)
+	if mapIdx > rulesIdx {
+		mapIdx -= 2
+	}
+	if mapIdx < 0 || rules.Kind != yaml.SequenceNode {
+		return
+	}
+
+	ordered := &yaml.Node{Kind: yaml.MappingNode}
+	for _, rule := range rules.Content {
+		match, okMatch := mappingChild(*rule, "match")
+		replace, okReplace := mappingChild(*rule, "replace")
+		if !okMatch || !okReplace {
+			return
+		}
+		ordered.Content = append(ordered.Content, &match, &replace)
+	}
+	blob.Content[mapIdx+1] = ordered
 }
 
 // filterEncode encodes v to a mapping node and keeps only the given keys.
@@ -420,6 +469,7 @@ func mergeUnderDefaults(node *yaml.Node, blob map[string]any) error {
 	if err := blobNode.Encode(blob); err != nil {
 		return err
 	}
+	writeRegexSourceRules(&blobNode)
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value == "defaults" {
 			node.Content[i+1].Content = append(node.Content[i+1].Content, blobNode.Content...)
