@@ -105,9 +105,8 @@ func isCDKType(t ProjectType) bool {
 
 // foldRepoPluginDefaults folds repo-level config into each project's plugin blob, then re-syncs the
 // deprecated typed mirrors. Two things fold in:
-//   - the legacy repo-level terraform.source_map (a list of {match,replace}) is transformed into the
-//     blob's regex_source_map (a map) under the terraform repo defaults - a compat shim, so it then
-//     flows through the generic merge like any other repo-level terraform option; and
+//   - the legacy repo-level terraform.source_map (a list of {match,replace}) is folded into the
+//     blob's regex_source_map and regex_source_rules - a compat shim; and
 //   - repo-level plugin defaults (c.Plugins) are deep-merged into each project whose type they apply
 //     to, with the per-project value winning.
 func (c *Config) foldRepoPluginDefaults() {
@@ -133,8 +132,8 @@ func (c *Config) foldRepoPluginDefaults() {
 }
 
 // foldSourceMapInto is the compat shim for the deprecated repo-level terraform.source_map: it folds
-// it into each terraform-family project's blob as regex_source_map (transforming the list of
-// {match,replace} into a map), unless the project already sets one (per-project wins). It stays on
+// it into each terraform-family project's blob as regex_source_map and regex_source_rules, unless the
+// project already sets one (per-project wins). It stays on
 // c.Terraform.SourceMap (the deprecated typed field / what's serialized) rather than being moved to a
 // repo blob, so it survives the env-var marshal/re-parse round-trip which runs before normalize.
 func (c *Config) foldSourceMapInto(project *Project) {
@@ -145,14 +144,19 @@ func (c *Config) foldSourceMapInto(project *Project) {
 		return
 	}
 	key := terraformBlobKey(project.Type)
-	if project.Plugins[key]["regex_source_map"] != nil {
+	if project.Plugins[key][regexSourceMapKey] != nil || project.Plugins[key][regexSourceRulesKey] != nil {
 		return
+	}
+	rules := make([]any, 0, len(c.Terraform.SourceMap))
+	for _, s := range c.Terraform.SourceMap {
+		rules = append(rules, map[string]any{"match": s.Match, "replace": s.Replace})
 	}
 	m := make(map[string]any, len(c.Terraform.SourceMap))
 	for _, s := range c.Terraform.SourceMap {
 		m[s.Match] = s.Replace
 	}
-	project.setPluginOption(key, "regex_source_map", m)
+	project.setPluginOption(key, regexSourceMapKey, m)
+	project.setPluginOption(key, regexSourceRulesKey, dedupeRegexSourceRules(rules))
 }
 
 // repoDefaultAppliesTo reports whether a repo-level plugin default (keyed by repoKey) applies to a
@@ -181,10 +185,60 @@ func repoDefaultAppliesTo(repoKey string, t ProjectType) (string, bool) {
 // the per-project value wins. Nested maps merge recursively; every other value (scalars and lists) is
 // atomic. Neither input is mutated.
 func mergePluginBlobs(defaults, project map[string]any) map[string]any {
-	if m, ok := deepMergeAny(defaults, project).(map[string]any); ok {
-		return m
+	m, ok := deepMergeAny(defaults, project).(map[string]any)
+	if !ok {
+		return nil
 	}
-	return nil
+	if rules := mergeRegexSourceRules(defaults[regexSourceRulesKey], project[regexSourceRulesKey]); rules != nil {
+		m[regexSourceRulesKey] = rules
+	}
+	return m
+}
+
+// dedupeRegexSourceRules keeps one rule per match, at its first position with its last replace, so the
+// list agrees with the map built from the same rules.
+func dedupeRegexSourceRules(rules []any) []any {
+	out := make([]any, 0, len(rules))
+	idx := map[string]int{}
+	for _, r := range rules {
+		rule, ok := r.(map[string]any)
+		if !ok {
+			continue
+		}
+		match := anyToString(rule["match"])
+		if i, ok := idx[match]; ok {
+			out[i] = rule
+			continue
+		}
+		idx[match] = len(out)
+		out = append(out, rule)
+	}
+	return out
+}
+
+// mergeRegexSourceRules merges rule lists like regex_source_map merges: the project's rules come
+// first, then each default rule whose match the project does not set.
+func mergeRegexSourceRules(defaults, project any) []any {
+	d, dok := defaults.([]any)
+	p, pok := project.([]any)
+	if !dok || !pok {
+		return nil
+	}
+	out := make([]any, 0, len(p)+len(d))
+	seen := map[string]bool{}
+	for _, r := range p {
+		if rule, ok := r.(map[string]any); ok {
+			seen[anyToString(rule["match"])] = true
+		}
+		out = append(out, r)
+	}
+	for _, r := range d {
+		if rule, ok := r.(map[string]any); ok && seen[anyToString(rule["match"])] {
+			continue
+		}
+		out = append(out, deepCopyAny(r))
+	}
+	return out
 }
 
 // deepMergeAny merges override onto base: only maps merge recursively; every other value (scalars AND

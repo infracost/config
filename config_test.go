@@ -10,6 +10,7 @@ import (
 	"github.com/infracost/config/plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func Test_ConfigVersionChecking(t *testing.T) {
@@ -271,11 +272,17 @@ projects:
 					Name: "main",
 					Path: "path/to/my_terraform",
 					// the repo-level terraform source map is folded into the project's plugin blob as
-					// regex_source_map (a map), which is what the plugin reads.
+					// regex_source_map (for older parsers) and regex_source_rules (in order).
 					Plugins: map[string]map[string]any{
 						"terraform": {
 							"regex_source_map": map[string]any{
 								"^ANOTHER_MODULE$": "github.com/CentricaDevOps/networks-aws-modules//modules/another?ref=another_v1.0.0",
+							},
+							"regex_source_rules": []any{
+								map[string]any{
+									"match":   "^ANOTHER_MODULE$",
+									"replace": "github.com/CentricaDevOps/networks-aws-modules//modules/another?ref=another_v1.0.0",
+								},
 							},
 						},
 					},
@@ -312,6 +319,90 @@ projects:
 			}
 		})
 	}
+}
+
+func loadTestConfig(t *testing.T, contents string) (*Config, error) {
+	t.Helper()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "infracost.yml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	return LoadConfigFile(t.Context(), path, tmp, WithLoadPluginDir(TestPluginDir))
+}
+
+func TestLoad_RegexSourceMapKeepsFileOrder(t *testing.T) {
+	c, err := loadTestConfig(t, `version: 0.3
+projects:
+  - path: app
+    terraform:
+      regex_source_map:
+        z: "1"
+        a: "2"
+        m: "3"
+`)
+	require.NoError(t, err)
+	require.Len(t, c.Projects, 1)
+	blob := c.Projects[0].Plugins["terraform"]
+	assert.Equal(t, []any{
+		map[string]any{"match": "z", "replace": "1"},
+		map[string]any{"match": "a", "replace": "2"},
+		map[string]any{"match": "m", "replace": "3"},
+	}, blob["regex_source_rules"])
+	assert.Equal(t, map[string]any{"z": "1", "a": "2", "m": "3"}, blob["regex_source_map"])
+
+	out, err := yaml.Marshal(c)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "regex_source_map:\n            z: \"1\"\n            a: \"2\"\n            m: \"3\"\n")
+	assert.NotContains(t, string(out), "regex_source_rules")
+}
+
+func TestLoad_RepoRegexSourceMapMergesWithProject(t *testing.T) {
+	c, err := loadTestConfig(t, `version: 0.3
+terraform:
+  defaults:
+    regex_source_map:
+      z: "1"
+      a: "2"
+projects:
+  - path: app
+  - path: other
+    terraform:
+      regex_source_map:
+        a: "project"
+        b: "3"
+`)
+	require.NoError(t, err)
+	require.Len(t, c.Projects, 2)
+	assert.Equal(t, []any{
+		map[string]any{"match": "z", "replace": "1"},
+		map[string]any{"match": "a", "replace": "2"},
+	}, c.Projects[0].Plugins["terraform"]["regex_source_rules"])
+	assert.Equal(t, []any{
+		map[string]any{"match": "a", "replace": "project"},
+		map[string]any{"match": "b", "replace": "3"},
+		map[string]any{"match": "z", "replace": "1"},
+	}, c.Projects[1].Plugins["terraform"]["regex_source_rules"])
+	assert.Equal(t, map[string]any{"z": "1", "a": "project", "b": "3"}, c.Projects[1].Plugins["terraform"]["regex_source_map"])
+}
+
+func TestLoad_TerraformSourceMapKeepsOrder(t *testing.T) {
+	c, err := loadTestConfig(t, `version: 0.2
+terraform_source_map:
+  - match: z
+    replace: "1"
+  - match: a
+    replace: "2"
+  - match: z
+    replace: "3"
+projects:
+  - path: app
+`)
+	require.NoError(t, err)
+	blob := c.Projects[0].Plugins["terraform"]
+	assert.Equal(t, []any{
+		map[string]any{"match": "z", "replace": "3"},
+		map[string]any{"match": "a", "replace": "2"},
+	}, blob["regex_source_rules"])
+	assert.Equal(t, map[string]any{"z": "3", "a": "2"}, blob["regex_source_map"])
 }
 
 func TestGenerateFillsCDKBlockWhenFeatureFlagEnabled(t *testing.T) {
