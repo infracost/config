@@ -235,6 +235,8 @@ func LoadConfigFile(
 			return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
 		}
 		backfillProjectTypes(ctx, repoPath, cfg, nil, identifier, false)
+		// repo defaults for non-terraform plugins skip typeless projects, so fold again now types are set.
+		cfg.foldRepoPluginDefaults()
 	}
 
 	if len(cfg.CDK.Projects) > 0 || len(cfg.CDK.Defaults.Context) > 0 || len(cfg.CDK.Defaults.Env) > 0 {

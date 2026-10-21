@@ -166,7 +166,7 @@ func backfillProjectTypes(
 		}
 
 		if t, ok := detected[relProjectPath(rootDir, project.Path)]; ok {
-			project.Type = t
+			retypeProject(project, t)
 			continue
 		}
 
@@ -177,9 +177,23 @@ func backfillProjectTypes(
 			path = filepath.Join(rootDir, path)
 		}
 		if t := autodetect.PathType(ctx, identifier, path, rootDir, singleFileMode, nil); t != ProjectTypeUnknown {
-			project.Type = t
+			retypeProject(project, t)
 		}
 	}
+}
+
+// retypeProject sets a typeless project's type and moves its terraform blob, stored under the
+// untyped "terraform" key, to the new type's key.
+func retypeProject(p *Project, t ProjectType) {
+	p.Type = t
+	key := terraformBlobKey(t)
+	if IsTerraformFamily(t) && key != string(ProjectTypeTerraform) {
+		if moved := p.Plugins[string(ProjectTypeTerraform)]; moved != nil {
+			setProjectPlugin(p, key, mergePluginBlobs(moved, p.Plugins[key]))
+			delete(p.Plugins, string(ProjectTypeTerraform))
+		}
+	}
+	mirrorBlobToDeprecated(p)
 }
 
 // relProjectPath normalizes a project path to a cleaned repo-relative key so rendered project paths
@@ -220,8 +234,6 @@ func Generate(
 		},
 	}
 
-	hasProjectsSection := strings.Contains(genOptions.Template, "\nprojects:") || strings.HasPrefix(genOptions.Template, "projects:")
-
 	identifier, err := plugin.CreateIdentifier(ctx, genOptions.PluginDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
@@ -251,6 +263,7 @@ func Generate(
 		DetectedRootModules: rootModules,
 	}
 
+	var hasProjectsSection bool
 	if genOptions.Template != "" {
 		var buf bytes.Buffer
 		parser := template.NewParser(rootDir, variables, genOptions.IsProjectProduction)
@@ -265,6 +278,11 @@ func Generate(
 				fmt.Printf("%4d: %s\n", i+1, line)
 			}
 			fmt.Println()
+		}
+
+		hasProjectsSection, err = hasTopLevelKey(buf.Bytes(), "projects")
+		if err != nil {
+			return nil, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err)
 		}
 
 		if _, err := parseWithAutodetectAllowed(buf.Bytes(), output, rootDir); err != nil {
@@ -379,4 +397,13 @@ func generatedPluginOptions(project autodetect.Project) (map[string]any, error) 
 	// Workspace is not part of the blob - it is written to the top-level terraform.workspace field
 	// (see Generate) and passed to the plugin via GenericOptions.Workspace.
 	return opts, nil
+}
+
+func hasTopLevelKey(raw []byte, key string) (bool, error) {
+	var doc map[string]yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return false, err
+	}
+	_, ok := doc[key]
+	return ok, nil
 }
