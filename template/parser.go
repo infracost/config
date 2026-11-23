@@ -21,6 +21,32 @@ var (
 	defaultInfracostTmplName = "infracost.yml.tmpl"
 )
 
+// ErrParse and ErrExecute mark which step of Compile failed.
+var (
+	ErrParse   = errors.New("could not parse template")
+	ErrExecute = errors.New("could not execute template")
+)
+
+// CompileError is a failed Compile or CompileFromFile. errors.Is matches its
+// Step, and Unwrap returns the text/template error.
+type CompileError struct {
+	// Step is ErrParse or ErrExecute.
+	Step error
+	Err  error
+
+	msg string
+}
+
+func (e *CompileError) Error() string {
+	if e.msg == "" {
+		return fmt.Sprintf("%s: %s", e.Step, e.Err)
+	}
+	return e.msg
+}
+
+func (e *CompileError) Unwrap() error        { return e.Err }
+func (e *CompileError) Is(target error) bool { return target == e.Step }
+
 // Variables hold the global variables that are passed into any template that the Parser evaluates.
 type Variables struct {
 	RepoName            string
@@ -92,12 +118,12 @@ func (p *Parser) CompileFromFile(templatePath string, wr io.Writer) error {
 
 	t, err := baseTemplate.ParseFiles(templatePath)
 	if err != nil {
-		return fmt.Errorf("could not parse template path: %s err: %w", templatePath, err)
+		return &CompileError{Step: ErrParse, Err: err, msg: fmt.Sprintf("could not parse template path: %s err: %s", templatePath, err)}
 	}
 
 	err = t.Execute(wr, p.variables)
 	if err != nil {
-		return fmt.Errorf("could not execute template: %s err: %w", templatePath, err)
+		return &CompileError{Step: ErrExecute, Err: err, msg: fmt.Sprintf("could not execute template: %s err: %s", templatePath, err)}
 	}
 
 	return nil
@@ -108,12 +134,12 @@ func (p *Parser) Compile(template string, wr io.Writer) error {
 	// rewrite escaped values to their literal values so that we get a nice output.
 	t, err := p.template.Parse(template)
 	if err != nil {
-		return fmt.Errorf("could not parse template: %q err: %w", template, err)
+		return &CompileError{Step: ErrParse, Err: err, msg: fmt.Sprintf("could not parse template: %q err: %s", template, err)}
 	}
 
 	err = t.Execute(wr, p.variables)
 	if err != nil {
-		return fmt.Errorf("could not execute template: %q err: %w", template, err)
+		return &CompileError{Step: ErrExecute, Err: err, msg: fmt.Sprintf("could not execute template: %q err: %s", template, err)}
 	}
 
 	return nil
