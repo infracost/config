@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,35 @@ func WithSingleFileMode(single bool) GenerationOption {
 	}
 }
 
+// WithDetectedProjects uses projects and rootModules as the detected ones,
+// and skips plugin identification and autodetect. The template's autodetect
+// section and autodetect's search options have no effect, and only the given
+// projects' types are backfilled.
+func WithDetectedProjects(projects []autodetect.Project, rootModules []autodetect.RootModule) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.hasDetectedProjects = true
+		o.detectedProjects = projects
+		o.detectedRootModules = rootModules
+	}
+}
+
+// WithWriter writes the compiled template to w, even when the template
+// fails part way: w then holds what rendered before the failure. Nothing is
+// written when there is no template.
+func WithWriter(w io.Writer) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.writer = w
+	}
+}
+
+// WithMaxRenderedBytes stops the template, as a run error that wraps
+// ErrRenderedTooLarge, once its output passes n bytes. 0 means no limit.
+func WithMaxRenderedBytes(n int) GenerationOption {
+	return func(o *GenerationOptions) {
+		o.maxRendered = n
+	}
+}
+
 type GenerationOptions struct {
 	Template               string // template content
 	DebugTemplate          bool   // debug template parsing
@@ -112,6 +142,13 @@ type GenerationOptions struct {
 	IgnoreHiddenDirs       bool
 	SkipCDK                bool
 	SingleFileMode         bool
+
+	// Set only through their options.
+	hasDetectedProjects bool
+	detectedProjects    []autodetect.Project
+	detectedRootModules []autodetect.RootModule
+	writer              io.Writer
+	maxRendered         int
 }
 
 var defaultConfigGenerationOptions = GenerationOptions{
@@ -122,6 +159,7 @@ var (
 	ErrCDKConfigGenerationFailed = errors.New("failed to generate CDK config")
 	ErrInvalidConfigYAML         = errors.New("invalid config YAML")
 	ErrInvalidConfigTemplate     = errors.New("invalid config template")
+	ErrRenderedTooLarge          = errors.New("rendered template is too large")
 	ErrNoParserPlugins           = errors.New("no parser plugins found")
 )
 
@@ -234,25 +272,30 @@ func Generate(
 		},
 	}
 
-	identifier, err := plugin.CreateIdentifier(ctx, genOptions.PluginDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
-	}
-	defer identifier.Close()
-	if identifier.Empty() {
-		return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
-	}
+	var identifier *plugin.Identifier
+	projects, rootModules := genOptions.detectedProjects, genOptions.detectedRootModules
+	if !genOptions.hasDetectedProjects {
+		var err error
+		identifier, err = plugin.CreateIdentifier(ctx, genOptions.PluginDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create plugin identifier: %w", err)
+		}
+		defer identifier.Close()
+		if identifier.Empty() {
+			return nil, fmt.Errorf("%w in %s", ErrNoParserPlugins, identifier.Dir())
+		}
 
-	projects, rootModules, err := autodetect.SearchForProjects(ctx, rootDir,
-		autodetect.WithSearchTemplate(genOptions.Template),
-		autodetect.WithSearchIdentifier(identifier),
-		autodetect.WithSearchMaxDepth(genOptions.MaxSearchDepth),
-		autodetect.WithSearchIgnorePermissionErrors(genOptions.IgnorePermissionErrors),
-		autodetect.WithSearchIgnoreHiddenDirs(genOptions.IgnoreHiddenDirs),
-		autodetect.WithSearchSingleFileMode(genOptions.SingleFileMode),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to locate projects: %w", err)
+		projects, rootModules, err = autodetect.SearchForProjects(ctx, rootDir,
+			autodetect.WithSearchTemplate(genOptions.Template),
+			autodetect.WithSearchIdentifier(identifier),
+			autodetect.WithSearchMaxDepth(genOptions.MaxSearchDepth),
+			autodetect.WithSearchIgnorePermissionErrors(genOptions.IgnorePermissionErrors),
+			autodetect.WithSearchIgnoreHiddenDirs(genOptions.IgnoreHiddenDirs),
+			autodetect.WithSearchSingleFileMode(genOptions.SingleFileMode),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate projects: %w", err)
+		}
 	}
 
 	variables := template.Variables{
@@ -267,8 +310,27 @@ func Generate(
 	if genOptions.Template != "" {
 		var buf bytes.Buffer
 		parser := template.NewParser(rootDir, variables, genOptions.IsProjectProduction)
-		if err := parser.Compile(genOptions.Template, &buf); err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrInvalidConfigTemplate, err)
+		var out io.Writer = &buf
+		if genOptions.maxRendered > 0 {
+			out = &limitWriter{w: &buf, left: genOptions.maxRendered}
+		}
+		compileErr := parser.Compile(genOptions.Template, out)
+		var writeErr error
+		if genOptions.writer != nil {
+			if _, err := genOptions.writer.Write(buf.Bytes()); err != nil {
+				writeErr = fmt.Errorf("failed to write rendered template: %w", err)
+			}
+		}
+		if compileErr != nil {
+			stage, cause := compileError(compileErr)
+			te := newTemplateError(stage, fmt.Errorf("%w: %s", ErrInvalidConfigTemplate, compileErr), cause)
+			if writeErr != nil {
+				return nil, errors.Join(te, writeErr)
+			}
+			return nil, te
+		}
+		if writeErr != nil {
+			return nil, writeErr
 		}
 
 		if genOptions.DebugTemplate {
@@ -280,13 +342,14 @@ func Generate(
 			fmt.Println()
 		}
 
+		var err error
 		hasProjectsSection, err = hasTopLevelKey(buf.Bytes(), "projects")
 		if err != nil {
-			return nil, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err)
+			return nil, newTemplateError(TemplateStageYAML, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err), err)
 		}
 
 		if _, err := parseWithAutodetectAllowed(buf.Bytes(), output, rootDir); err != nil {
-			return nil, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err)
+			return nil, newTemplateError(TemplateStageConfig, fmt.Errorf("%w (after template compilation): %s", ErrInvalidConfigTemplate, err), err)
 		}
 	}
 
@@ -406,4 +469,20 @@ func hasTopLevelKey(raw []byte, key string) (bool, error) {
 	}
 	_, ok := doc[key]
 	return ok, nil
+}
+
+// limitWriter fails once more than left bytes are written.
+type limitWriter struct {
+	w    io.Writer
+	left int
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	if len(p) > l.left {
+		n, _ := l.w.Write(p[:l.left])
+		l.left = 0
+		return n, ErrRenderedTooLarge
+	}
+	l.left -= len(p)
+	return l.w.Write(p)
 }

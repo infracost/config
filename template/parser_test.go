@@ -2,6 +2,8 @@ package template
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,4 +190,31 @@ func TestParser_Compile(t *testing.T) {
 			assert.Equal(t, expected, actualStringOutput)
 		})
 	}
+}
+
+func TestCompile_CompileErrorStep(t *testing.T) {
+	p := NewParser(t.TempDir(), Variables{}, nil)
+
+	err := p.Compile("{{ if }}", io.Discard)
+	assert.ErrorIs(t, err, ErrParse)
+	assert.NotErrorIs(t, err, ErrExecute)
+	assert.NotNil(t, errors.Unwrap(err))
+
+	err = p.Compile("{{ .Nope.Deeper }}", io.Discard)
+	assert.ErrorIs(t, err, ErrExecute)
+	assert.NotErrorIs(t, err, ErrParse)
+}
+
+func TestCompileFromFile_CompileErrorStep(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "infracost.yml.tmpl")
+	require.NoError(t, os.WriteFile(path, []byte("{{ if }}"), 0o600))
+
+	err := NewParser(dir, Variables{}, nil).CompileFromFile(path, io.Discard)
+	assert.ErrorIs(t, err, ErrParse)
+}
+
+func TestCompileError_ErrorWithoutMessage(t *testing.T) {
+	err := &CompileError{Step: ErrExecute, Err: errors.New("boom")}
+	assert.Equal(t, "could not execute template: boom", err.Error())
 }
